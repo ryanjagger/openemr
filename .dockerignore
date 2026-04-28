@@ -11,7 +11,7 @@ public/themes
 tests
 docs
 docker
-ccdaservice/node_modules
+ccdaservice
 
 .idea
 .vscode
