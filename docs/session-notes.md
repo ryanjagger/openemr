@@ -6,6 +6,9 @@ claude --resume "deploy-openemr-railway"
 ## module architecture
 claude --resume 29bc85b5-a161-46f4-be48-a0fa3882d7b2
 
+## deploy troubleshooting
+claude --resume 6d42bbce-3d1d-4b3f-a5f8-a57ef4b2e36f
+
 ## hello-world Plan: AI-Generated Patient Summary Card on the Dashboard
 claude --resume 29bc85b5-a161-46f4-be48-a0fa3882d7b2
  ~/.claude/plans/okay-so-i-m-in-silly-engelbart.md
