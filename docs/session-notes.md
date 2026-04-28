@@ -6,6 +6,9 @@ claude --resume "deploy-openemr-railway"
 ## module architecture
 claude --resume 29bc85b5-a161-46f4-be48-a0fa3882d7b2
 
+## hello-world Plan: AI-Generated Patient Summary Card on the Dashboard
+claude --resume 29bc85b5-a161-46f4-be48-a0fa3882d7b2
+ ~/.claude/plans/okay-so-i-m-in-silly-engelbart.md
 
 # local dev workflow
 1. Bring up the dev stack (pulls images + runs initial install, waits for healthchecks):
