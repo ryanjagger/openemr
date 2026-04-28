@@ -1,0 +1,51 @@
+# Keep the build context lean. Anything not needed inside the runtime image
+# should be excluded here. The Dockerfile installs composer + npm deps and
+# builds front-end assets at image-build time, so we exclude any host-side
+# vendor/ or node_modules/ that may exist locally.
+
+.git
+.gitattributes
+.gitignore
+.github
+
+# Dependency directories — rebuilt inside the image.
+# NOTE: do NOT exclude public/assets — `public/assets/modified/` is committed
+# source (allow-listed in .gitignore) and is imported by SCSS during build.
+# `public/assets/bootstrap-rtl/` and similar are populated by `gulp -i` during
+# postinstall, so they don't exist on disk pre-build anyway.
+vendor
+node_modules
+ccdaservice/node_modules
+ccdaservice/packages/*/node_modules
+
+# Tests and dev-only tooling
+tests
+.phpunit.cache
+.phpunit.result.cache
+.phpstan.cache
+phpstan-baseline.neon
+
+# Local docker / dev environments
+docker/development-easy
+docker/development-easy-light
+docker/development-easy-redis
+docker/development-insane
+
+# Editor / OS / IDE
+.idea
+.vscode
+.DS_Store
+*.swp
+*.swo
+
+# Local secrets and env files (Railway injects env vars at runtime)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Plan / scratch files (this repo only)
+docs/session-notes.md

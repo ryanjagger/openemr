@@ -1,0 +1,50 @@
+# What `railway up` ships to Railway's builder. Mirrors most of .dockerignore
+# but explicitly drops large directories that bloat the upload (.git is 750+ MB,
+# Documentation/ is 150 MB) so the upload stays under Railway's CLI timeout.
+
+.git
+.github
+.gitattributes
+.gitignore
+
+# Dependency directories — rebuilt inside the image
+vendor
+node_modules
+ccdaservice/node_modules
+ccdaservice/packages/*/node_modules
+
+# Tests, dev tooling, caches
+tests
+.phpstan
+.phpstan.cache
+.phpunit.cache
+.phpunit.result.cache
+phpstan-baseline.neon
+
+# User-facing PDFs / reference docs — not needed at runtime
+Documentation
+
+# Local docker / dev environments
+docker/development-easy
+docker/development-easy-light
+docker/development-easy-redis
+docker/development-insane
+
+# Editor / OS / IDE
+.idea
+.vscode
+.DS_Store
+*.swp
+*.swo
+
+# Local secrets and env files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Plan / scratch files
+docs/session-notes.md
