@@ -1,26 +1,97 @@
 # OpenEMR AI Agent — Architecture
 
+## Intro
+
+The below MVP draft is designed around implementing a single user story - generating a patient 'summary/brief' for a physician that is displayed on on the patient dashboard UI.
+
+While just beginning with a single user-story feature, it contains the architecture and platform needed to implement further AI tools.
+
+
+## OpenEMR Plugin Architecture
+
 During an architecture audit, I found that OpenEMR has a mature plug-in architecture that allows for custom modules. It also includes an event architecture we can hook into. There are eight modules already in the codebase with patterns we can follow.
 
-Given the nature of this application (healthcare) and future constraints (HIPPA, BAA rules), we should build on the module extensibilty patterns already in OpenEMR.
+Given the nature of this application (healthcare) and future constraints (HIPPA, BAA rules), we should build on the module extensibility patterns already in OpenEMR.
 
-I'm going to start by adding a new custom OpenEMR PHP module. This will interface with a Python "sidecar" service that runs the agent, calls the LLM, and handles verification and observability services. We'll follow existing PHP module patterns for the new module, but the Python sidecar interface will allow us to work with more modern tooling.
+> I plan to build the feature as an OpenEMR custom module, expose only a narrow PHP-facing “agent gateway,” let PHP enforce OpenEMR authorization and patient context, and let the Python sidecar handle LLM orchestration, LangGraph workflows, verification, and observability.
 
-LangChain to be used from day 1 for the agent to make future features (Observability logging, Verification steps) quicker to implement.
+We'll follow existing PHP module patterns for the new module, with the Python sidecare service allowing us to work with more modern tooling.
 
-The below MVP draft is designed around implementing a single, single user story - generating a patient 'brief' for a physician on the patient dashboard UI. While just a single feature, it will implement the infrastructure needed (new module, python service sidecar, langgraph, a simple verification service) for future feature implementation.
+
+
+## AI Patient Brief Request Flow
+
+1. **Browser / Patient Dashboard**
+   - Sends:
+     - `POST /interface/modules/custom_modules/oe-module-ai-agent/public/patient-brief.php`
+
+2. **OpenEMR AI Module (PHP)**
+   - Validates:
+     - session + CSRF
+     - current patient context
+     - OpenEMR ACLs
+   - Prepares:
+     - minimal allowed clinical context
+   - Calls:
+     - Python sidecar over mTLS or local network
+
+3. **Python Sidecar**
+   - Runs LangGraph workflow:
+     - fetch/receive clinical context
+     - normalize into evidence bundle
+     - generate brief
+     - verify citations / grounding
+     - return structured result
+
+4. **OpenEMR Module (PHP)**
+   - Stores:
+     - audit record
+     - optional cached brief
+
+5. **Dashboard Card**
+   - Renders the patient brief to the user
+
+
+
+## User Authentication & Permissions
+
+During the OpenEMR code audit, I identified several default user roles — Admin, Physician, Clinician, Front Office, Accounting, & Emergency. Actual security/authorization comes from ACL group memberships:
+
+>User account ->
+  -> belongs to one or more groups / roles
+  -> groups have ACL permissions
+  -> code checks ACLs before showing or performing actions
+  -> patient context / encounter context further constrains what the user can access
+  -> API/FHIR scopes add another permission layer for API access
+
+These permissions can be used in our tool calling functions:
+
+	{
+	  "tool": "get_patient_demographics",
+	  "requires": [
+	    ["patients", "demo", "view"]
+	  ]
+	}`
+
+
+## APIs and Tool Calling
+
+OpenEMR’s current API docs list a broad FHIR surface including patient-level resources such as Patient, AllergyIntolerance, CarePlan, CareTeam, Condition, DiagnosticReport, DocumentReference, Encounter, Goal, Immunization, Medication, MedicationRequest, Observation, Procedure, Provenance, and others. These map very closely to patient-brief agent tools I intend to build out for v1: get_patient_demographics, get_active_conditions, get_active_medications, get_allergies. 
+
+
+
 
 
 
 **Date:** 2026-04-28
 **Status:** Draft for MVP
-**Related docs:** [`docs/users.md`](../users.md), [`docs/openemr/AUDIT.md`](../openemr/AUDIT.md), [`docs/openemr/AUDIT2.md`](../openemr/AUDIT2.md), [`docs/openemr/auth.md`](../openemr/auth.md), [`docs/openemr/module-architecture.md`](../openemr/module-architecture.md)
+**Related docs:** [`USERS.md`](users.md), [`AUDIT.md`](AUDIT.md),
 
 ---
 
 ## Executive Summary
 
-This document defines the architecture for an AI agent integrated into OpenEMR. The MVP wedge is a **read-only "5-line patient brief"** rendered in a panel on the physician patient summary page, targeted at the persona in `docs/users.md` §2: a primary care physician between patients who needs a chart-prep brief in under 60 seconds. Subsequent personas (MA med-rec, biller AR triage, ED resident, front office, admin) extend from this same substrate; design decisions favor the MVP without precluding them.
+This document defines the architecture for an AI agent integrated into OpenEMR. The MVP wedge is a **read-only "5-line patient brief"** rendered in a panel on the physician patient summary page, targeted at the persona in `USERS.md` §2: a primary care physician between patients who needs a chart-prep brief in under 60 seconds. Subsequent personas (MA med-rec, biller AR triage, ED resident, front office, admin) extend from this same substrate; design decisions favor the MVP without precluding them.
 
 ### Key decisions
 

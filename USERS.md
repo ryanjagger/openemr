@@ -1,7 +1,17 @@
 # OpenEMR User Profiles for AI Agent Planning
 
-During the audit, we identified several user types — for example, physicians, clinicians, front office users, and admin users. From these, I had Opus 4.7 develop six profiles, one per role, each with a typical use case they might encounter. Keep in mind that these are not user stories, but user stories could be derived from these personas in the future.
+During the audit, we identified several user types — for example, physicians, clinicians, front office users, and admin users. The actual authorization comes from ACL group membership and the permissions assigned to those groups.
+OpenEMR’s installation docs mention that a user may belong to multiple groups, and that setup configures phpGACL access controls and grants the initial user administrator access:
 
+User account
+  -> belongs to one or more groups / roles
+  -> groups have ACL permissions
+  -> code checks ACLs before showing or performing actions
+  -> patient context / encounter context further constrains what the user can access
+  -> API/FHIR scopes add another permission layer for API access
+
+
+From default user types, I had Opus 4.7 develop six profiles, one per role, each with a typical use case they might encounter. Keep in mind that these are not user stories, but user stories could be derived from these personas in the future.
 
 ---
 
