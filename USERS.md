@@ -1,8 +1,7 @@
 # OpenEMR User Profiles for AI Agent Planning
 
-**Agent/Model** Claude Code / Opus 4.7
+During the audit, we identified several user types — for example, physicians, clinicians, front office users, and admin users. From these, I had Opus 4.7 develop six profiles, one per role, each with a typical use case they might encounter. Keep in mind that these are not user stories, but user stories could be derived from these personas in the future.
 
-Six narrow profiles — one per role — with the pre-agent moment, the use case, and the defense for a conversational shape. Each persona is bound to a real time pressure and a specific decision, to avoid the "users need information" thesis-statement trap.
 
 ---
 
