@@ -1,6 +1,29 @@
-# OpenEMR Audit — Concise Summary
+# OpenEMR Audit — Summary
 
-## Key Findings (~500 words)
+## Key Findings
+
+I ran several audits of OpenEMR from a few different angles:
+
+### Module Architecture:
+I was trying to find the best place to integrate a new AI agent feature and came across OpenEMR's module system, Symfony EventDispatcher,  FHIR API. This seems perfect for implementing AI agent tools like tool/function calls.
+
+### User Groups/Roles
+I audited user types and summarized below. This will be useful for implementing security in AI agent, as well as user stories for new features.
+
+| Question | Answer |
+|---|---|
+| Are there different user levels? | **Yes** — 6 built-in groups (Admin, Physician, Clinician, Front Office, Accounting, Emergency) |
+| Is it role-based? | **Yes** — phpGACL with ARO groups mapped to ACO permissions |
+| Can you restrict by function? | **Yes** — ~50+ granular permissions across 13 sections |
+| Can you restrict by patient ownership? | **Partially** — `see_auth` controls encounter authorizations; but there's a known gap where `pid` can be set from `$_GET` without ownership verification |
+| Is there a superuser? | **Yes** — `admin/super` bypasses all checks |
+| How do APIs work? | **OAuth2 + SMART-on-FHIR scopes** — separate from phpGACL but the user identity flows through both |
+
+### Deployment 
+I have a branch `feature/deploy` deployed to Railway: openemr-production-d9e4.up.railway.app
+Railway handles the antiquated lamp codebase but I am exploring a VPS as an alternative for future iterations.
+
+
 
 OpenEMR is a **mature, ONC-certifiable EHR** with strong foundational security — bcrypt/Argon2id hashing, MFA, OAuth2 with SMART-on-FHIR v2.2.0 scopes, CSRF tokens, parameterized SQL via `sqlStatement()`, comprehensive XSS escaping helpers, AES-256-CBC + HMAC-SHA384 encryption infrastructure (`CryptoGen`), and a detailed event-based audit log with ATNA forwarding. The architecture is genuinely extensible via custom modules + Symfony EventDispatcher, making AI agent integration possible without forking core. **However, it is not deployment-ready as a PHI-handling backend out of the box** — several toggles are off by default and a small number of structural issues need real engineering.
 
