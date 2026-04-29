@@ -1,0 +1,55 @@
+{
+  "label": "Recent creatinine 1.8 mg/dL — exercises tier1_typed_fact_reextraction on a transposable number",
+  "expectations": {
+    "min_verified_items": 1,
+    "expected_citations": ["obs-creatinine"],
+    "must_contain": ["1.8"],
+    "must_not_contain": ["8.1", "i recommend", "rule out"]
+  },
+  "fhir": {
+    "Patient": {
+      "resourceType": "Patient",
+      "id": "eval-patient-fixture",
+      "name": [{ "text": "Phillip Owens" }],
+      "gender": "male",
+      "birthDate": "1955-09-09",
+      "meta": { "lastUpdated": "{{TODAY-7D}}T00:00:00+00:00" }
+    },
+    "Condition": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Condition",
+            "id": "cond-ckd",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "clinicalStatus": { "coding": [{ "code": "active" }] },
+            "code": { "text": "Chronic kidney disease stage 3" },
+            "meta": { "lastUpdated": "{{TODAY-60D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "MedicationRequest": { "resourceType": "Bundle", "entry": [] },
+    "AllergyIntolerance": { "resourceType": "Bundle", "entry": [] },
+    "Encounter": { "resourceType": "Bundle", "entry": [] },
+    "Observation": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Observation",
+            "id": "obs-creatinine",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "final",
+            "code": { "text": "Creatinine, serum" },
+            "valueQuantity": { "value": 1.8, "unit": "mg/dL" },
+            "effectiveDateTime": "{{TODAY-14D}}",
+            "meta": { "lastUpdated": "{{TODAY-14D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "DocumentReference": { "resourceType": "Bundle", "entry": [] }
+  }
+}

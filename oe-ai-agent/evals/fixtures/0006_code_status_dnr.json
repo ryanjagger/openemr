@@ -1,0 +1,41 @@
+{
+  "label": "DNR/DNI documented in advance directive — code_status should render",
+  "expectations": {
+    "min_verified_items": 1,
+    "expected_types_present": ["code_status"],
+    "expected_citations": ["doc-advance-directive"],
+    "must_contain": ["dnr"],
+    "must_not_contain": ["i recommend", "consider"]
+  },
+  "fhir": {
+    "Patient": {
+      "resourceType": "Patient",
+      "id": "eval-patient-fixture",
+      "name": [{ "text": "Margaret Doyle" }],
+      "gender": "female",
+      "birthDate": "1942-02-28",
+      "meta": { "lastUpdated": "{{TODAY-14D}}T00:00:00+00:00" }
+    },
+    "Condition": { "resourceType": "Bundle", "entry": [] },
+    "MedicationRequest": { "resourceType": "Bundle", "entry": [] },
+    "AllergyIntolerance": { "resourceType": "Bundle", "entry": [] },
+    "Encounter": { "resourceType": "Bundle", "entry": [] },
+    "Observation": { "resourceType": "Bundle", "entry": [] },
+    "DocumentReference": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "DocumentReference",
+            "id": "doc-advance-directive",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "type": { "text": "Advance directive" },
+            "date": "{{TODAY-365D}}T00:00:00+00:00",
+            "description": "DNR/DNI per signed advance directive on file. Patient does not wish resuscitation or intubation.",
+            "meta": { "lastUpdated": "{{TODAY-365D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    }
+  }
+}

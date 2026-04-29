@@ -1,0 +1,71 @@
+{
+  "label": "T2DM patient, last A1c 200 days ago — should surface as overdue",
+  "expectations": {
+    "min_verified_items": 1,
+    "expected_types_present": ["overdue"],
+    "expected_citations": ["obs-a1c-old"],
+    "must_contain": ["a1c"],
+    "must_not_contain": ["i recommend", "you should"]
+  },
+  "fhir": {
+    "Patient": {
+      "resourceType": "Patient",
+      "id": "eval-patient-fixture",
+      "name": [{ "text": "Daniel Greer" }],
+      "gender": "male",
+      "birthDate": "1958-07-19",
+      "meta": { "lastUpdated": "{{TODAY-14D}}T00:00:00+00:00" }
+    },
+    "Condition": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Condition",
+            "id": "cond-dm2",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "clinicalStatus": { "coding": [{ "code": "active" }] },
+            "code": { "text": "Type 2 diabetes mellitus" },
+            "meta": { "lastUpdated": "{{TODAY-90D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "MedicationRequest": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-metformin",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "active",
+            "medicationCodeableConcept": { "text": "Metformin 1000 mg oral tablet" },
+            "authoredOn": "{{TODAY-30D}}",
+            "meta": { "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "AllergyIntolerance": { "resourceType": "Bundle", "entry": [] },
+    "Encounter": { "resourceType": "Bundle", "entry": [] },
+    "Observation": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Observation",
+            "id": "obs-a1c-old",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "final",
+            "code": { "text": "Hemoglobin A1c" },
+            "valueQuantity": { "value": 8.4, "unit": "%" },
+            "effectiveDateTime": "{{TODAY-200D}}",
+            "meta": { "lastUpdated": "{{TODAY-200D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "DocumentReference": { "resourceType": "Bundle", "entry": [] }
+  }
+}

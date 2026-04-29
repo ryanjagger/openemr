@@ -1,0 +1,42 @@
+{
+  "label": "Deceased patient — brief should still render historical facts without advisory tone",
+  "expectations": {
+    "min_verified_items": 1,
+    "expected_types_present": ["allergy"],
+    "expected_citations": ["allergy-pcn"],
+    "must_contain": ["penicillin"],
+    "must_not_contain": ["i recommend", "consider stopping", "rule out", "should"]
+  },
+  "fhir": {
+    "Patient": {
+      "resourceType": "Patient",
+      "id": "eval-patient-fixture",
+      "name": [{ "text": "Harold Bishop" }],
+      "gender": "male",
+      "birthDate": "1935-06-14",
+      "deceasedDateTime": "{{TODAY-30D}}T08:15:00+00:00",
+      "meta": { "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00" }
+    },
+    "Condition": { "resourceType": "Bundle", "entry": [] },
+    "MedicationRequest": { "resourceType": "Bundle", "entry": [] },
+    "AllergyIntolerance": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "AllergyIntolerance",
+            "id": "allergy-pcn",
+            "patient": { "reference": "Patient/eval-patient-fixture" },
+            "clinicalStatus": { "coding": [{ "code": "active" }] },
+            "code": { "text": "Penicillin" },
+            "reaction": [{ "manifestation": [{ "text": "Anaphylaxis" }] }],
+            "meta": { "lastUpdated": "{{TODAY-180D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "Encounter": { "resourceType": "Bundle", "entry": [] },
+    "Observation": { "resourceType": "Bundle", "entry": [] },
+    "DocumentReference": { "resourceType": "Bundle", "entry": [] }
+  }
+}

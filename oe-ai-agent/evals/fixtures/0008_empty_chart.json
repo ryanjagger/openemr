@@ -1,0 +1,24 @@
+{
+  "label": "Empty chart — only Patient demographics, all clinical bundles empty",
+  "expectations": {
+    "max_verified_items": 0,
+    "expected_types_absent": ["med_current", "med_change", "allergy", "overdue", "recent_event", "agenda_item", "code_status"],
+    "must_not_contain": ["i recommend", "consider", "should"]
+  },
+  "fhir": {
+    "Patient": {
+      "resourceType": "Patient",
+      "id": "eval-patient-fixture",
+      "name": [{ "text": "Empty Chart" }],
+      "gender": "unknown",
+      "birthDate": "1980-01-01",
+      "meta": { "lastUpdated": "{{TODAY-7D}}T00:00:00+00:00" }
+    },
+    "Condition": { "resourceType": "Bundle", "entry": [] },
+    "MedicationRequest": { "resourceType": "Bundle", "entry": [] },
+    "AllergyIntolerance": { "resourceType": "Bundle", "entry": [] },
+    "Encounter": { "resourceType": "Bundle", "entry": [] },
+    "Observation": { "resourceType": "Bundle", "entry": [] },
+    "DocumentReference": { "resourceType": "Bundle", "entry": [] }
+  }
+}

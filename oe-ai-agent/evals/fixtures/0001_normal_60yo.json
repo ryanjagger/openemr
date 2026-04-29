@@ -1,0 +1,136 @@
+{
+  "label": "60yo with HTN/T2DM, 3 active meds, 1 allergy, recent visit — golden path",
+  "expectations": {
+    "min_verified_items": 3,
+    "expected_types_present": ["med_current", "allergy"],
+    "expected_citations": ["med-lisinopril", "med-metformin", "allergy-pcn"],
+    "must_contain": ["lisinopril", "metformin", "penicillin"],
+    "must_not_contain": ["i recommend", "consider stopping", "rule out"]
+  },
+  "fhir": {
+    "Patient": {
+      "resourceType": "Patient",
+      "id": "eval-patient-fixture",
+      "name": [{ "text": "Eleanor Park" }],
+      "gender": "female",
+      "birthDate": "1965-08-12",
+      "meta": { "lastUpdated": "{{TODAY-7D}}T00:00:00+00:00" }
+    },
+    "Condition": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Condition",
+            "id": "cond-htn",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "clinicalStatus": { "coding": [{ "code": "active" }] },
+            "code": { "text": "Essential hypertension" },
+            "meta": { "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00" }
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "Condition",
+            "id": "cond-dm2",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "clinicalStatus": { "coding": [{ "code": "active" }] },
+            "code": { "text": "Type 2 diabetes mellitus" },
+            "meta": { "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "MedicationRequest": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-lisinopril",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "active",
+            "medicationCodeableConcept": { "text": "Lisinopril 10 mg oral tablet" },
+            "authoredOn": "{{TODAY-21D}}",
+            "meta": { "lastUpdated": "{{TODAY-21D}}T00:00:00+00:00" }
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-metformin",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "active",
+            "medicationCodeableConcept": { "text": "Metformin 1000 mg oral tablet" },
+            "authoredOn": "{{TODAY-21D}}",
+            "meta": { "lastUpdated": "{{TODAY-21D}}T00:00:00+00:00" }
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-atorvastatin",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "active",
+            "medicationCodeableConcept": { "text": "Atorvastatin 20 mg oral tablet" },
+            "authoredOn": "{{TODAY-90D}}",
+            "meta": { "lastUpdated": "{{TODAY-90D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "AllergyIntolerance": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "AllergyIntolerance",
+            "id": "allergy-pcn",
+            "patient": { "reference": "Patient/eval-patient-fixture" },
+            "clinicalStatus": { "coding": [{ "code": "active" }] },
+            "code": { "text": "Penicillin G" },
+            "reaction": [{ "manifestation": [{ "text": "Hives" }] }],
+            "meta": { "lastUpdated": "{{TODAY-365D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "Encounter": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Encounter",
+            "id": "enc-followup",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "finished",
+            "type": [{ "text": "Office visit" }],
+            "period": { "start": "{{TODAY-14D}}T10:30:00+00:00", "end": "{{TODAY-14D}}T11:00:00+00:00" },
+            "meta": { "lastUpdated": "{{TODAY-14D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "Observation": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Observation",
+            "id": "obs-a1c",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "final",
+            "code": { "text": "Hemoglobin A1c" },
+            "valueQuantity": { "value": 7.2, "unit": "%" },
+            "effectiveDateTime": "{{TODAY-21D}}",
+            "meta": { "lastUpdated": "{{TODAY-21D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "DocumentReference": {
+      "resourceType": "Bundle",
+      "entry": []
+    }
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "label": "Recent visit with negated symptoms — verifier blind spot per ARCH §6.5 #4",
+  "known_limitation": true,
+  "expectations": {
+    "min_verified_items": 1,
+    "expected_types_absent": ["recent_event", "agenda_item"],
+    "expected_citations": ["med-amlodipine"],
+    "must_contain": ["amlodipine"],
+    "must_not_contain": ["has chest pain", "reports chest pain", "i recommend"]
+  },
+  "fhir": {
+    "Patient": {
+      "resourceType": "Patient",
+      "id": "eval-patient-fixture",
+      "name": [{ "text": "Marcus Chen" }],
+      "gender": "male",
+      "birthDate": "1972-03-04",
+      "meta": { "lastUpdated": "{{TODAY-7D}}T00:00:00+00:00" }
+    },
+    "Condition": { "resourceType": "Bundle", "entry": [] },
+    "MedicationRequest": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-amlodipine",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "active",
+            "medicationCodeableConcept": { "text": "Amlodipine 5 mg oral tablet" },
+            "authoredOn": "{{TODAY-30D}}",
+            "meta": { "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "AllergyIntolerance": { "resourceType": "Bundle", "entry": [] },
+    "Encounter": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Encounter",
+            "id": "enc-cardio",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "finished",
+            "type": [{ "text": "Cardiology follow-up" }],
+            "period": { "start": "{{TODAY-10D}}T14:00:00+00:00", "end": "{{TODAY-10D}}T14:30:00+00:00" },
+            "meta": { "lastUpdated": "{{TODAY-10D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "Observation": { "resourceType": "Bundle", "entry": [] },
+    "DocumentReference": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "DocumentReference",
+            "id": "doc-cardio-note",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "type": { "text": "Cardiology progress note" },
+            "date": "{{TODAY-10D}}T14:35:00+00:00",
+            "content": [
+              {
+                "attachment": {
+                  "contentType": "text/plain",
+                  "title": "Progress note",
+                  "data": "UGF0aWVudCBkZW5pZXMgY2hlc3QgcGFpbiwgc2hvcnRuZXNzIG9mIGJyZWF0aCwgcGFscGl0YXRpb25zLg=="
+                }
+              }
+            ],
+            "description": "Patient denies chest pain, shortness of breath, palpitations. BP well controlled on amlodipine.",
+            "meta": { "lastUpdated": "{{TODAY-10D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    }
+  }
+}
