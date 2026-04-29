@@ -28,6 +28,13 @@ TOOL_FIELD_WHITELIST: dict[str, tuple[str, ...]] = {
         "effectiveDateTime",
         "interpretation",
     ),
+    "get_lab_trend": (
+        "code",
+        "valueQuantity",
+        "effectiveDateTime",
+        "interpretation",
+        "referenceRange",
+    ),
     "get_recent_notes": ("description", "date", "author", "content"),
 }
 

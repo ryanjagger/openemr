@@ -53,6 +53,7 @@ ON DUPLICATE KEY UPDATE
 CREATE TABLE IF NOT EXISTS `llm_call_log` (
     `id`                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `request_id`               CHAR(36)        NOT NULL,
+    `conversation_id`          VARCHAR(36)     NULL,
     `user_id`                  BIGINT UNSIGNED NOT NULL,
     `patient_id`               BIGINT UNSIGNED NOT NULL,
     `action_type`              VARCHAR(32)     NOT NULL,
@@ -69,5 +70,22 @@ CREATE TABLE IF NOT EXISTS `llm_call_log` (
     `created_at`               TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     INDEX `idx_patient_user_time` (`patient_id`, `user_id`, `created_at`),
-    INDEX `idx_request_id` (`request_id`)
+    INDEX `idx_request_id` (`request_id`),
+    INDEX `idx_conversation_id` (`conversation_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Idempotent column add for installs that pre-date the chat surface.
+SET @col_exists := (
+    SELECT COUNT(*) FROM `information_schema`.`COLUMNS`
+    WHERE `TABLE_SCHEMA` = DATABASE()
+      AND `TABLE_NAME` = 'llm_call_log'
+      AND `COLUMN_NAME` = 'conversation_id'
+);
+SET @sql := IF(
+    @col_exists = 0,
+    'ALTER TABLE `llm_call_log` ADD COLUMN `conversation_id` VARCHAR(36) NULL AFTER `request_id`, ADD INDEX `idx_conversation_id` (`conversation_id`)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;

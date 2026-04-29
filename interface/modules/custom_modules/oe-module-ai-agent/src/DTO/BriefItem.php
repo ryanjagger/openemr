@@ -24,6 +24,7 @@ final readonly class BriefItem
         public array $verbatimExcerpts,
         public array $citations,
         public bool $verified,
+        public ?int $anchor = null,
     ) {
     }
 
@@ -33,7 +34,8 @@ final readonly class BriefItem
      *     text?: string,
      *     verbatim_excerpts?: list<string>,
      *     citations?: list<array{resource_type?: string, resource_id?: string}>,
-     *     verified?: bool
+     *     verified?: bool,
+     *     anchor?: int|null
      * } $payload
      */
     public static function fromArray(array $payload): self
@@ -43,12 +45,16 @@ final readonly class BriefItem
             $citations[] = Citation::fromArray($citation);
         }
 
+        $rawAnchor = $payload['anchor'] ?? null;
+        $anchor = is_int($rawAnchor) ? $rawAnchor : null;
+
         return new self(
             type: (string) ($payload['type'] ?? ''),
             text: (string) ($payload['text'] ?? ''),
             verbatimExcerpts: array_values(array_map('strval', $payload['verbatim_excerpts'] ?? [])),
             citations: $citations,
             verified: (bool) ($payload['verified'] ?? false),
+            anchor: $anchor,
         );
     }
 }

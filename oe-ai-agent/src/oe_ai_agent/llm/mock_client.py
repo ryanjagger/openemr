@@ -1,6 +1,6 @@
 """Deterministic mock LLM for Phase 3a + tests.
 
-Two modes:
+Modes:
 
 * ``MockLlmClient(scripted=<str|callable>)`` — fixed string or
   callable-of-(messages, response_format)→string. Used by unit tests where
@@ -9,6 +9,9 @@ Two modes:
   section listing tool rows (resource_type, resource_id), then emits a
   small, schema-valid ``BriefResponse`` JSON that cites real rows. Used by
   the integration path so the verifier sees consistent input.
+* ``MockLlmClient(chat_scripted=...)`` — scripted ``chat_with_tools``
+  responder for chat-graph tests. Accepts a fixed ``LlmChatResult`` or a
+  callable that receives the messages and returns one.
 """
 
 from __future__ import annotations
@@ -18,6 +21,8 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from oe_ai_agent.llm.client import LlmChatResult
+
 _CONTEXT_LINE_RE = re.compile(
     r"^- (?P<rtype>\w+)/(?P<rid>[\w\-:]+)(?: \[(?P<note>[^\]]*)\])?$",
     re.MULTILINE,
@@ -25,24 +30,49 @@ _CONTEXT_LINE_RE = re.compile(
 
 _MAX_SYNTHESIZED_ITEMS = 5
 
+ChatScript = LlmChatResult | Callable[[list[dict[str, Any]]], LlmChatResult]
+
 
 class MockLlmClient:
     model_id = "mock"
 
     def __init__(
         self,
-        scripted: str | Callable[[list[dict[str, str]], dict[str, Any] | None], str],
+        scripted: str | Callable[[list[dict[str, str]], dict[str, Any] | None], str] | None = None,
+        *,
+        chat_scripted: ChatScript | None = None,
     ) -> None:
         self._scripted = scripted
+        self._chat_scripted = chat_scripted
 
     async def chat(
         self,
         messages: list[dict[str, str]],
         response_format: dict[str, Any] | None = None,
     ) -> str:
+        if self._scripted is None:
+            raise RuntimeError(
+                "MockLlmClient.chat() called without a scripted responder",
+            )
         if callable(self._scripted):
             return self._scripted(messages, response_format)
         return self._scripted
+
+    async def chat_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        response_format: dict[str, Any] | None = None,
+    ) -> LlmChatResult:
+        if self._chat_scripted is None:
+            # Fall back to .chat()-style scripting if only a string was provided —
+            # tests that don't need tool_calls can still drive chat_with_tools.
+            text = await self.chat(messages, response_format)
+            return LlmChatResult(content=text, tool_calls=[])
+        if callable(self._chat_scripted):
+            return self._chat_scripted(messages)
+        return self._chat_scripted
 
     @classmethod
     def synthesizing(cls) -> MockLlmClient:

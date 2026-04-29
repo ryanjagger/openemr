@@ -18,6 +18,7 @@ use OpenEMR\Common\Session\SessionWrapperFactory;
 use OpenEMR\Events\PatientDemographics\RenderEvent as DemographicsRenderEvent;
 use OpenEMR\Events\RestApiExtend\RestApiCreateEvent;
 use OpenEMR\Modules\AiAgent\Controller\BriefController;
+use OpenEMR\Modules\AiAgent\Controller\ChatController;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 
 final class Bootstrap
@@ -38,7 +39,7 @@ final class Bootstrap
         );
         $this->eventDispatcher->addListener(
             DemographicsRenderEvent::EVENT_SECTION_LIST_RENDER_BEFORE,
-            $this->renderBriefPanel(...),
+            $this->renderPanels(...),
         );
     }
 
@@ -50,22 +51,29 @@ final class Bootstrap
                 return BriefController::default()->generate($pid, $request);
             },
         );
+        $event->addToRouteMap(
+            'POST /api/ai/chat/:pid',
+            function (string $pid, HttpRestRequest $request): array {
+                return ChatController::default()->turn($pid, $request);
+            },
+        );
 
         return $event;
     }
 
-    public function renderBriefPanel(DemographicsRenderEvent $event): void
+    public function renderPanels(DemographicsRenderEvent $event): void
     {
         $session = SessionWrapperFactory::getInstance()->getActiveSession();
         $apiCsrfToken = CsrfUtils::collectCsrfToken($session, 'api');
         $pid = (string) $event->getPid();
         $publicPath = self::PUBLIC_PATH;
-        $templatePath = self::TEMPLATE_DIR . '/patient_summary_panel.php';
 
-        if (!is_file($templatePath)) {
-            return;
+        foreach (['patient_summary_panel.php', 'chat_panel.php'] as $template) {
+            $templatePath = self::TEMPLATE_DIR . '/' . $template;
+            if (!is_file($templatePath)) {
+                continue;
+            }
+            include $templatePath;
         }
-
-        include $templatePath;
     }
 }

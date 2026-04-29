@@ -26,6 +26,7 @@ use Throwable;
 final class AuditLogService
 {
     public const ACTION_BRIEF_READ = 'brief.read';
+    public const ACTION_CHAT_TURN = 'chat.turn';
 
     public function __construct(
         private readonly string $hmacSecret,
@@ -55,6 +56,7 @@ final class AuditLogService
 
         $row = [
             'request_id' => $entry->requestId,
+            'conversation_id' => $entry->conversationId,
             'user_id' => $entry->userId,
             'patient_id' => $entry->patientId,
             'action_type' => $entry->actionType,
@@ -75,13 +77,14 @@ final class AuditLogService
         try {
             QueryUtils::sqlStatementThrowException(
                 'INSERT INTO `llm_call_log` ('
-                . '`request_id`, `user_id`, `patient_id`, `action_type`, `model_id`, '
+                . '`request_id`, `conversation_id`, `user_id`, `patient_id`, `action_type`, `model_id`, '
                 . '`prompt_tokens`, `completion_tokens`, `request_hash`, `response_hash`, '
                 . '`tool_calls`, `verification_status`, `verification_failures`, '
                 . '`integrity_checksum`, `prev_log_hash`, `created_at`'
-                . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     $row['request_id'],
+                    $row['conversation_id'],
                     $row['user_id'],
                     $row['patient_id'],
                     $row['action_type'],

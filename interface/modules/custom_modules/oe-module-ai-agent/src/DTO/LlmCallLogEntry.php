@@ -36,6 +36,7 @@ final readonly class LlmCallLogEntry
         public string $responseHash,
         public ?array $verificationFailures,
         public LlmCallVerificationStatus $verificationStatus,
+        public ?string $conversationId = null,
     ) {
     }
 }

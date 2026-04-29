@@ -39,6 +39,9 @@ class BriefItem(BaseModel):
     verbatim_excerpts: list[str] = Field(default_factory=list)
     citations: list[Citation] = Field(default_factory=list)
     verified: bool = True
+    # Chat surface uses anchor to link narrative footnotes (`[^N]`) to the
+    # fact card that grounds them. Brief output leaves it None.
+    anchor: int | None = None
 
 
 class VerificationFailure(BaseModel):
