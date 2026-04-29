@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Wrapper script to map Railway MySQL environment variables to OpenEMR expected format
 
 # Map Railway MySQL environment variables to OpenEMR expected format
