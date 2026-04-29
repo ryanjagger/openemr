@@ -23,5 +23,5 @@ echo "MySQL Database: ${MYSQLDATABASE:-openemr}"
 echo "OE_USER: $OE_USER"
 echo "========================================"
 
-# Run the original OpenEMR entrypoint
-exec /original-entrypoint.sh
+# Run the original OpenEMR startup script
+exec /run/startup.sh

@@ -4,7 +4,4 @@ FROM openemr/openemr:latest
 COPY railway/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Keep the original entrypoint available
-RUN cp /etc/docker-entrypoint.sh /original-entrypoint.sh
-
 EXPOSE 80 443
