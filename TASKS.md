@@ -62,7 +62,7 @@ Goal: real LLM produces structured output, verifier gates it.
 - **T3.7 — Verifier Tier 2 (schema).** Closed-type enum (Pydantic), advisory-phrase denylist (regex), citation-count floor. Per ARCH §6.2.
 - **T3.8 — Constraints map.** `verifier/constraints.py`: full `ALLOWED_TABLES_FOR_TYPE` map for all 7 claim types (ARCH §6.1 only shows three examples — fill in the rest).
 - **T3.9 — Failure UX.** Failed items dropped silently, logged to `verification_failures`. Empty-brief case renders the "no verified items" message per ARCH §6.4.
-- **T3.10 — Feature flag for `recent_event` / `agenda_item`.** Gate these item types behind a config flag pending Tier 3 decision (residual negation/temporality risk per ARCH §6.5 #4).
+- **T3.10 — Feature flag for `recent_event` / `agenda_item`.** Gate these item types behind a config flag pending Tier 3 decision (residual negation/temporality risk per ARCH §6.5 #4). _Done — `AI_AGENT_ENABLE_FREETEXT_TYPES` (default false) narrows both the prompt allow-list and the JSON-schema enum, with a Tier 2 `tier2_type_disabled` check as defense in depth._
 
 ---
 

@@ -12,19 +12,25 @@ from langgraph.graph import END, START, StateGraph
 from oe_ai_agent.agent.nodes.fetch_context_node import fetch_context_node
 from oe_ai_agent.agent.nodes.llm_call import make_llm_call_node
 from oe_ai_agent.agent.nodes.parse_output import parse_output_node
-from oe_ai_agent.agent.nodes.verify import verify_node
+from oe_ai_agent.agent.nodes.verify import make_verify_node
 from oe_ai_agent.agent.state import AgentState
 from oe_ai_agent.llm.client import LlmClient
+from oe_ai_agent.schemas.brief import BriefItemType
 
 
-def build_graph(llm: LlmClient) -> object:
+def build_graph(
+    llm: LlmClient,
+    *,
+    allowed_types: frozenset[BriefItemType] | None = None,
+) -> object:
+    types = allowed_types if allowed_types is not None else frozenset(BriefItemType)
     builder = StateGraph(AgentState)
     # LangGraph's _Node generic doesn't infer cleanly across our async
     # closures; runtime behavior is exercised by tests/test_agent_graph.py.
     builder.add_node("fetch_context", fetch_context_node)
-    builder.add_node("llm_call", make_llm_call_node(llm))  # type: ignore[arg-type]
+    builder.add_node("llm_call", make_llm_call_node(llm, types))  # type: ignore[arg-type]
     builder.add_node("parse_output", parse_output_node)
-    builder.add_node("verify", verify_node)
+    builder.add_node("verify", make_verify_node(types))  # type: ignore[arg-type]
 
     builder.add_edge(START, "fetch_context")
     builder.add_edge("fetch_context", "llm_call")

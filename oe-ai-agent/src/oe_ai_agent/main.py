@@ -37,7 +37,8 @@ def _llm_client() -> LlmClient:
 
 @cache
 def _graph() -> object:
-    return build_graph(_llm_client())
+    settings = load_settings()
+    return build_graph(_llm_client(), allowed_types=settings.allowed_item_types)
 
 
 @app.get("/healthz")

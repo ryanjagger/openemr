@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from oe_ai_agent.schemas.brief import BriefItem, VerificationFailure
+from oe_ai_agent.schemas.brief import BriefItem, BriefItemType, VerificationFailure
 from oe_ai_agent.schemas.tool_results import TypedRow
 from oe_ai_agent.verifier.tier1_structural import (
     check_citations_exist,
@@ -14,7 +14,11 @@ from oe_ai_agent.verifier.tier1_structural import (
     check_type_table_compatibility,
     check_typed_fact_reextraction,
 )
-from oe_ai_agent.verifier.tier2_schema import check_advisory_denylist, check_citation_floor
+from oe_ai_agent.verifier.tier2_schema import (
+    check_advisory_denylist,
+    check_citation_floor,
+    check_disabled_type,
+)
 
 
 @dataclass(frozen=True)
@@ -29,15 +33,18 @@ def verify_items(
     expected_patient_uuid: str,
     *,
     now: datetime | None = None,
+    allowed_types: frozenset[BriefItemType] | None = None,
 ) -> VerificationResult:
     """Run Tier 1 + Tier 2. First failing rule per item drops the item."""
     moment = now or datetime.now(tz=UTC)
+    types = allowed_types if allowed_types is not None else frozenset(BriefItemType)
     verified: list[BriefItem] = []
     failures: list[VerificationFailure] = []
 
     for index, item in enumerate(items):
         failure = (
-            check_citation_floor(item, item_index=index)
+            check_disabled_type(item, types, item_index=index)
+            or check_citation_floor(item, item_index=index)
             or check_advisory_denylist(item, item_index=index)
             or check_citations_exist(item, tool_rows, item_index=index)
             or check_patient_binding(item, tool_rows, expected_patient_uuid, item_index=index)

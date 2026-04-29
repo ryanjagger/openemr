@@ -19,9 +19,11 @@ from oe_ai_agent.verifier.constraints import ALLOWED_TABLES_FOR_TYPE
 def build_messages(
     patient_uuid: str,
     tool_rows: list[TypedRow],
+    allowed_types: frozenset[BriefItemType] | None = None,
 ) -> list[dict[str, str]]:
+    types = allowed_types if allowed_types is not None else frozenset(BriefItemType)
     return [
-        {"role": "system", "content": _system_prompt()},
+        {"role": "system", "content": _system_prompt(types)},
         {
             "role": "user",
             "content": _user_prompt(patient_uuid=patient_uuid, tool_rows=tool_rows),
@@ -29,12 +31,15 @@ def build_messages(
     ]
 
 
-def response_format() -> dict[str, Any]:
+def response_format(
+    allowed_types: frozenset[BriefItemType] | None = None,
+) -> dict[str, Any]:
     """Pinned JSON schema the LLM must conform to.
 
     Wired into LiteLLM's ``response_format={"type": "json_schema", ...}`` in
     Phase 3b. The mock client ignores the value but receives it for parity.
     """
+    types = allowed_types if allowed_types is not None else frozenset(BriefItemType)
     return {
         "type": "json_schema",
         "json_schema": {
@@ -44,7 +49,7 @@ def response_format() -> dict[str, Any]:
                 "properties": {
                     "items": {
                         "type": "array",
-                        "items": _brief_item_schema(),
+                        "items": _brief_item_schema(types),
                     },
                 },
                 "required": ["items"],
@@ -55,12 +60,13 @@ def response_format() -> dict[str, Any]:
     }
 
 
-def _system_prompt() -> str:
+def _system_prompt(allowed_types: frozenset[BriefItemType]) -> str:
+    ordered = [t for t in BriefItemType if t in allowed_types]
     type_table_lines = "\n".join(
         f"  - {t.value}: {sorted(ALLOWED_TABLES_FOR_TYPE[t])}"
-        for t in BriefItemType
+        for t in ordered
     )
-    type_enum = ", ".join(t.value for t in BriefItemType)
+    type_enum = ", ".join(t.value for t in ordered)
     return (
         "You are an OpenEMR chart-summary agent. You produce a short, "
         "verifiable brief for a physician about to walk into a patient room.\n"
@@ -156,11 +162,12 @@ def _coding_text(value: object) -> str | None:
     return None
 
 
-def _brief_item_schema() -> dict[str, Any]:
+def _brief_item_schema(allowed_types: frozenset[BriefItemType]) -> dict[str, Any]:
+    ordered = [t.value for t in BriefItemType if t in allowed_types]
     return {
         "type": "object",
         "properties": {
-            "type": {"type": "string", "enum": [t.value for t in BriefItemType]},
+            "type": {"type": "string", "enum": ordered},
             "text": {"type": "string"},
             "verbatim_excerpts": {"type": "array", "items": {"type": "string"}},
             "citations": {

@@ -145,6 +145,35 @@ def test_citation_floor_blocks_zero_citations() -> None:
     assert failure.rule == "tier2_citation_floor"
 
 
+def test_disabled_type_dropped_when_freetext_types_off() -> None:
+    """T3.10: when AI_AGENT_ENABLE_FREETEXT_TYPES is off, recent_event and
+    agenda_item items are dropped with rule=tier2_type_disabled, even if every
+    other Tier 1/2 check would pass."""
+    rows = [_row("Encounter", "enc-1", verbatim="follow-up visit")]
+    items = [
+        _item(BriefItemType.RECENT_EVENT, "follow-up visit", [("Encounter", "enc-1")]),
+        _item(BriefItemType.MED_CURRENT, "On Lisinopril", [("MedicationRequest", "med-1")]),
+    ]
+    rows_with_med = [*rows, _row("MedicationRequest", "med-1")]
+    structured_only = frozenset(BriefItemType) - {
+        BriefItemType.RECENT_EVENT,
+        BriefItemType.AGENDA_ITEM,
+    }
+
+    result = verify_items(
+        items,
+        rows_with_med,
+        expected_patient_uuid=PATIENT,
+        now=NOW,
+        allowed_types=structured_only,
+    )
+
+    assert {i.text for i in result.verified} == {"On Lisinopril"}
+    assert len(result.failures) == 1
+    assert result.failures[0].rule == "tier2_type_disabled"
+    assert result.failures[0].item_index == 0
+
+
 # ----- Orchestrator -----------------------------------------------------
 
 
