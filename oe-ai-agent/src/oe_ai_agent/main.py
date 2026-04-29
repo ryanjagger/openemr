@@ -54,6 +54,7 @@ async def brief(request: BriefRequest) -> BriefResponse:
         bearer_token=request.bearer_token,
         request_id=request.request_id,
     )
+    model_id = _llm_client().model_id
     try:
         final_state_dict = await _graph().ainvoke(initial)  # type: ignore[attr-defined]
     except Exception as exc:
@@ -63,6 +64,7 @@ async def brief(request: BriefRequest) -> BriefResponse:
         )
         return BriefResponse(
             request_id=request.request_id,
+            model_id=model_id,
             items=[],
             verification_failures=[
                 VerificationFailure(
@@ -76,6 +78,7 @@ async def brief(request: BriefRequest) -> BriefResponse:
 
     return BriefResponse(
         request_id=request.request_id,
+        model_id=model_id,
         items=final.verified_items,
         verification_failures=final.verification_failures,
     )

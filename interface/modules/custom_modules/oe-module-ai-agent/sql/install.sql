@@ -40,3 +40,34 @@ INSERT INTO `oauth_clients` (
 ON DUPLICATE KEY UPDATE
     `is_enabled` = 1,
     `scope` = VALUES(`scope`);
+
+-- ---------------------------------------------------------------------
+-- llm_call_log — supplementary audit trail for LLM-mediated reads.
+-- One row per agent invocation. Hashes only in MVP (no raw prompts or
+-- responses). integrity_checksum is HMAC-SHA256 over the canonical row
+-- and detects single-row tampering by anyone without the key.
+-- prev_log_hash is reserved for hash-chaining in a follow-up (ARCH §8.3).
+-- request_id joins back to OpenEMR's existing api_log via the
+-- X-Request-Id header that the sidecar attaches to FHIR calls.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `llm_call_log` (
+    `id`                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `request_id`               CHAR(36)        NOT NULL,
+    `user_id`                  BIGINT UNSIGNED NOT NULL,
+    `patient_id`               BIGINT UNSIGNED NOT NULL,
+    `action_type`              VARCHAR(32)     NOT NULL,
+    `model_id`                 VARCHAR(128)    NOT NULL,
+    `prompt_tokens`            INT             NOT NULL DEFAULT 0,
+    `completion_tokens`        INT             NOT NULL DEFAULT 0,
+    `request_hash`             CHAR(64)        NOT NULL,
+    `response_hash`            CHAR(64)        NOT NULL,
+    `tool_calls`               JSON            NULL,
+    `verification_status`      ENUM('passed', 'partial', 'failed', 'denied') NOT NULL,
+    `verification_failures`    JSON            NULL,
+    `integrity_checksum`       CHAR(64)        NOT NULL,
+    `prev_log_hash`            CHAR(64)        NULL,
+    `created_at`               TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    INDEX `idx_patient_user_time` (`patient_id`, `user_id`, `created_at`),
+    INDEX `idx_request_id` (`request_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -11,6 +11,7 @@ async def fetch_context_node(state: AgentState) -> dict[str, object]:
     async with FhirClient(
         base_url=state.fhir_base_url,
         bearer_token=state.bearer_token.get_secret_value(),
+        request_id=state.request_id,
     ) as client:
         result = await fetch_context(client, state.patient_uuid)
 

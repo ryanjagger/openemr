@@ -27,6 +27,8 @@ _MAX_SYNTHESIZED_ITEMS = 5
 
 
 class MockLlmClient:
+    model_id = "mock"
+
     def __init__(
         self,
         scripted: str | Callable[[list[dict[str, str]], dict[str, Any] | None], str],

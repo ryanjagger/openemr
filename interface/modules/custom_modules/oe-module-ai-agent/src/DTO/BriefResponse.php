@@ -20,6 +20,7 @@ final readonly class BriefResponse
      */
     public function __construct(
         public string $requestId,
+        public string $modelId,
         public array $items,
         public array $verificationFailures,
     ) {
@@ -28,6 +29,7 @@ final readonly class BriefResponse
     /**
      * @param array{
      *     request_id?: string,
+     *     model_id?: string,
      *     items?: list<array<string, mixed>>,
      *     verification_failures?: list<array<string, mixed>>
      * } $payload
@@ -42,6 +44,7 @@ final readonly class BriefResponse
 
         return new self(
             requestId: (string) ($payload['request_id'] ?? ''),
+            modelId: (string) ($payload['model_id'] ?? 'unknown'),
             items: $items,
             verificationFailures: array_values($payload['verification_failures'] ?? []),
         );
@@ -50,6 +53,7 @@ final readonly class BriefResponse
     /**
      * @return array{
      *     request_id: string,
+     *     model_id: string,
      *     items: list<array{
      *         type: string,
      *         text: string,
@@ -64,6 +68,7 @@ final readonly class BriefResponse
     {
         return [
             'request_id' => $this->requestId,
+            'model_id' => $this->modelId,
             'items' => array_map(
                 static fn (BriefItem $item): array => [
                     'type' => $item->type,

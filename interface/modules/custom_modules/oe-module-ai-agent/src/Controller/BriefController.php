@@ -17,9 +17,14 @@ use OpenEMR\Common\Http\HttpRestRequest;
 use OpenEMR\Common\Session\SessionWrapperFactory;
 use OpenEMR\Common\Uuid\UuidRegistry;
 use OpenEMR\Modules\AiAgent\DTO\BriefRequest;
+use OpenEMR\Modules\AiAgent\DTO\BriefResponse;
+use OpenEMR\Modules\AiAgent\DTO\LlmCallLogEntry;
+use OpenEMR\Modules\AiAgent\DTO\LlmCallVerificationStatus;
+use OpenEMR\Modules\AiAgent\Service\AuditLogService;
 use OpenEMR\Modules\AiAgent\Service\BearerTokenMinter;
 use OpenEMR\Modules\AiAgent\Service\PatientAccessValidator;
 use OpenEMR\Modules\AiAgent\Service\SidecarClient;
+use Ramsey\Uuid\Uuid;
 use Throwable;
 
 final class BriefController
@@ -28,6 +33,7 @@ final class BriefController
         private readonly SidecarClient $sidecarClient,
         private readonly PatientAccessValidator $patientAccessValidator,
         private readonly BearerTokenMinter $bearerTokenMinter,
+        private readonly AuditLogService $auditLogService,
     ) {
     }
 
@@ -37,6 +43,7 @@ final class BriefController
             SidecarClient::fromEnvironment(),
             new PatientAccessValidator(),
             BearerTokenMinter::default(),
+            AuditLogService::default(),
         );
     }
 
@@ -45,26 +52,59 @@ final class BriefController
      */
     public function generate(string $pid, HttpRestRequest $request): array
     {
-        $requestId = bin2hex(random_bytes(16));
+        $requestId = Uuid::uuid4()->toString();
+        $patientId = ctype_digit($pid) ? (int) $pid : 0;
+        $userId = $this->resolveUserId();
+        $requestHash = $this->hashCanonical(['pid' => $pid, 'request_id' => $requestId]);
 
-        if (!$this->patientAccessValidator->canRead($pid)) {
-            http_response_code(403);
-            return [
-                'error' => 'forbidden',
-                'request_id' => $requestId,
-            ];
+        $userUuid = $userId !== 0 ? $this->resolveUserUuid($userId) : null;
+        if ($userUuid === null) {
+            return $this->finalize(
+                pid: $pid,
+                requestId: $requestId,
+                userId: $userId,
+                patientId: $patientId,
+                modelId: 'unknown',
+                requestHash: $requestHash,
+                responseHash: $this->hashCanonical(['error' => 'no_authenticated_user']),
+                status: LlmCallVerificationStatus::Denied,
+                verificationFailures: null,
+                httpStatus: 401,
+                payload: ['error' => 'no_authenticated_user', 'request_id' => $requestId],
+            );
         }
 
-        $userUuid = $this->resolveUserUuid();
-        if ($userUuid === null) {
-            http_response_code(401);
-            return ['error' => 'no_authenticated_user', 'request_id' => $requestId];
+        if (!$this->patientAccessValidator->canRead($pid)) {
+            return $this->finalize(
+                pid: $pid,
+                requestId: $requestId,
+                userId: $userId,
+                patientId: $patientId,
+                modelId: 'unknown',
+                requestHash: $requestHash,
+                responseHash: $this->hashCanonical(['error' => 'forbidden']),
+                status: LlmCallVerificationStatus::Denied,
+                verificationFailures: null,
+                httpStatus: 403,
+                payload: ['error' => 'forbidden', 'request_id' => $requestId],
+            );
         }
 
         $patientUuid = $this->resolvePatientUuid($pid);
         if ($patientUuid === null) {
-            http_response_code(404);
-            return ['error' => 'patient_not_found', 'request_id' => $requestId];
+            return $this->finalize(
+                pid: $pid,
+                requestId: $requestId,
+                userId: $userId,
+                patientId: $patientId,
+                modelId: 'unknown',
+                requestHash: $requestHash,
+                responseHash: $this->hashCanonical(['error' => 'patient_not_found']),
+                status: LlmCallVerificationStatus::Failed,
+                verificationFailures: null,
+                httpStatus: 404,
+                payload: ['error' => 'patient_not_found', 'request_id' => $requestId],
+            );
         }
 
         try {
@@ -74,8 +114,19 @@ final class BriefController
             );
         } catch (Throwable $e) {
             error_log('oe-module-ai-agent: token mint failed: ' . $e->getMessage());
-            http_response_code(500);
-            return ['error' => 'token_mint_failed', 'request_id' => $requestId];
+            return $this->finalize(
+                pid: $pid,
+                requestId: $requestId,
+                userId: $userId,
+                patientId: $patientId,
+                modelId: 'unknown',
+                requestHash: $requestHash,
+                responseHash: $this->hashCanonical(['error' => 'token_mint_failed']),
+                status: LlmCallVerificationStatus::Failed,
+                verificationFailures: null,
+                httpStatus: 500,
+                payload: ['error' => 'token_mint_failed', 'request_id' => $requestId],
+            );
         }
 
         $fhirBaseUrl = (string) (getenv('AI_AGENT_FHIR_BASE_URL')
@@ -89,26 +140,125 @@ final class BriefController
         );
 
         try {
-            return $this->sidecarClient->fetchBrief($briefRequest)->toArray();
+            $briefResponse = $this->sidecarClient->fetchBrief($briefRequest);
         } catch (Throwable $e) {
-            http_response_code(502);
-            return [
-                'error' => 'sidecar_unreachable',
-                'request_id' => $requestId,
-            ];
+            return $this->finalize(
+                pid: $pid,
+                requestId: $requestId,
+                userId: $userId,
+                patientId: $patientId,
+                modelId: 'unknown',
+                requestHash: $requestHash,
+                responseHash: $this->hashCanonical(['error' => 'sidecar_unreachable']),
+                status: LlmCallVerificationStatus::Failed,
+                verificationFailures: null,
+                httpStatus: 502,
+                payload: ['error' => 'sidecar_unreachable', 'request_id' => $requestId],
+            );
         }
+
+        $payload = $briefResponse->toArray();
+
+        return $this->finalize(
+            pid: $pid,
+            requestId: $requestId,
+            userId: $userId,
+            patientId: $patientId,
+            modelId: $briefResponse->modelId,
+            requestHash: $requestHash,
+            responseHash: $this->hashCanonical($payload),
+            status: $this->classifyOutcome($briefResponse),
+            verificationFailures: $briefResponse->verificationFailures,
+            httpStatus: 200,
+            payload: $payload,
+        );
     }
 
-    private function resolveUserUuid(): ?string
+    /**
+     * @param list<array<string, mixed>>|null $verificationFailures
+     * @param array<string, mixed>            $payload
+     *
+     * @return array<string, mixed>
+     */
+    private function finalize(
+        string $pid,
+        string $requestId,
+        int $userId,
+        int $patientId,
+        string $modelId,
+        string $requestHash,
+        string $responseHash,
+        LlmCallVerificationStatus $status,
+        ?array $verificationFailures,
+        int $httpStatus,
+        array $payload,
+    ): array {
+        $this->auditLogService->record(new LlmCallLogEntry(
+            requestId: $requestId,
+            userId: $userId,
+            patientId: $patientId,
+            actionType: AuditLogService::ACTION_BRIEF_READ,
+            modelId: $modelId,
+            promptTokens: 0,
+            completionTokens: 0,
+            requestHash: $requestHash,
+            responseHash: $responseHash,
+            verificationFailures: $verificationFailures,
+            verificationStatus: $status,
+        ));
+
+        if ($httpStatus !== 200) {
+            http_response_code($httpStatus);
+        }
+
+        return $payload;
+    }
+
+    private function classifyOutcome(BriefResponse $response): LlmCallVerificationStatus
+    {
+        $itemCount = count($response->items);
+        $failureCount = count($response->verificationFailures);
+
+        if ($itemCount === 0) {
+            return LlmCallVerificationStatus::Failed;
+        }
+        if ($failureCount > 0) {
+            return LlmCallVerificationStatus::Partial;
+        }
+
+        return LlmCallVerificationStatus::Passed;
+    }
+
+    /**
+     * @param array<string, mixed> $value
+     */
+    private function hashCanonical(array $value): string
+    {
+        return hash(
+            'sha256',
+            json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+        );
+    }
+
+    private function resolveUserId(): int
     {
         $session = SessionWrapperFactory::getInstance()->getActiveSession();
         $authUserId = $session->get('authUserID');
-        if (!is_int($authUserId) && !is_string($authUserId)) {
-            return null;
+        if (is_int($authUserId)) {
+            return $authUserId;
         }
+        if (is_string($authUserId) && ctype_digit($authUserId)) {
+            return (int) $authUserId;
+        }
+
+        return 0;
+    }
+
+    private function resolveUserUuid(int $userId): ?string
+    {
         $row = QueryUtils::fetchRecords(
             'SELECT uuid FROM users WHERE id = ? LIMIT 1',
-            [$authUserId],
+            [$userId],
             true,
         );
         if ($row === [] || empty($row[0]['uuid'])) {

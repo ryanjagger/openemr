@@ -10,6 +10,12 @@ from typing import Any, Protocol
 
 
 class LlmClient(Protocol):
+    @property
+    def model_id(self) -> str:
+        """Identifier of the model the client routes to (e.g. ``mock`` or
+        ``anthropic/claude-sonnet-4-6``). Surfaced into the audit log."""
+        ...
+
     async def chat(
         self,
         messages: list[dict[str, str]],

@@ -26,11 +26,13 @@ class FhirClient:
         base_url: str,
         bearer_token: str,
         http: httpx.AsyncClient | None = None,
+        request_id: str | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._bearer_token = bearer_token
         self._http = http
         self._owned_http = http is None
+        self._request_id = request_id
 
     async def __aenter__(self) -> FhirClient:
         if self._http is None:
@@ -49,10 +51,15 @@ class FhirClient:
         return self._http
 
     def _headers(self) -> dict[str, str]:
-        return {
+        headers = {
             "Authorization": f"Bearer {self._bearer_token}",
             "Accept": "application/fhir+json",
         }
+        if self._request_id is not None:
+            # Lets api_log rows for this brief join back to llm_call_log via the
+            # shared request_id (ARCH §8.4).
+            headers["X-Request-Id"] = self._request_id
+        return headers
 
     async def search(
         self,

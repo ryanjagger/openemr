@@ -64,6 +64,7 @@ class BriefRequest(BaseModel):
 
 class BriefResponse(BaseModel):
     request_id: str
+    model_id: str
     items: list[BriefItem] = Field(default_factory=list)
     verification_failures: list[VerificationFailure] = Field(default_factory=list)
 

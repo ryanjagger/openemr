@@ -34,6 +34,10 @@ class LiteLLMClient:
         self._api_key = api_key
         self._max_tokens = max_tokens
 
+    @property
+    def model_id(self) -> str:
+        return self._model
+
     async def chat(
         self,
         messages: list[dict[str, str]],
