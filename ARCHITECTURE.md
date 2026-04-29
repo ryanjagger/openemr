@@ -2,7 +2,7 @@
 
 ## Intro
 
-The below MVP draft is designed around implementing a single user story - generating a patient 'summary/brief' for a physician that is displayed on on the patient dashboard UI.
+The below MVP draft is designed around implementing a single user story - generating a patient 'summary/brief' for a physician that is displayed on on the patient dashboard UI. My goal in this phase is to 1. have a very well understood technical plan that I can then turn into tasks to start implementing and 2. have the beginning of a deployment pipeline ready for new feature adds.
 
 While just beginning with a single user-story feature, it contains the architecture and platform needed to implement further AI tools.
 
@@ -37,7 +37,7 @@ We'll follow existing PHP module patterns for the new module, with the Python si
 
 3. **Python Sidecar**
    - Runs LangGraph workflow:
-     - fetch/receive clinical context
+     - fetch/receive clinical context (tool calls)
      - normalize into evidence bundle
      - generate brief
      - verify citations / grounding
