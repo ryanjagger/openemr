@@ -92,6 +92,9 @@ services:
       OPENEMR_SETTING_SMTP_Auth: 'TRUE'
       OPENEMR_SETTING_practice_return_email_path: 'noreply@openemr.local'
       OPENEMR_SETTING_Patient_Reminder_Sender_Name: 'OpenEMR Reminders'
+      AI_AGENT_SIDECAR_URL: http://oe-ai-agent:8000
+      AI_AGENT_FHIR_BASE_URL: http://openemr/apis/default/fhir
+      INTERNAL_AUTH_SECRET: ${INTERNAL_AUTH_SECRET:-dev-internal-auth-secret}
     depends_on:
       mysql:
         condition: service_healthy
@@ -181,6 +184,34 @@ services:
       start_period: 10s
       interval: 30s
       timeout: 5s
+      retries: 3
+  oe-ai-agent:
+    restart: always
+    build:
+      context: ../../oe-ai-agent
+      dockerfile: Dockerfile
+    ports:
+    - "${WT_AI_AGENT_PORT:-8400}:8000"
+    environment:
+      INTERNAL_AUTH_SECRET: ${INTERNAL_AUTH_SECRET:-dev-internal-auth-secret}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_MODEL: ${LLM_MODEL:-anthropic/claude-sonnet-4-6}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENEMR_FHIR_BASE: https://openemr/apis/default/fhir
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]
+      start_period: 30s
+      interval: 1m
+      timeout: 5s
+      retries: 3
+  redis:
+    restart: always
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      start_period: 10s
+      interval: 30s
+      timeout: 3s
       retries: 3
 volumes:
   databasevolume: {}

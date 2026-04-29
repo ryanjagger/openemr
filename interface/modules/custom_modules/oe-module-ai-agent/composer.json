@@ -1,0 +1,18 @@
+{
+  "name": "openemr/oe-module-ai-agent",
+  "description": "OpenEMR AI Agent — read-only patient brief MVP",
+  "type": "openemr-module",
+  "license": "GPL-3.0",
+  "minimum-stability": "stable",
+  "authors": [
+    {
+      "name": "Ryan Jagger",
+      "email": "jagger@fastmail.com"
+    }
+  ],
+  "keywords": ["openemr", "openemr-module", "ai", "agent"],
+  "require": {
+  },
+  "conflict": {
+  }
+}
