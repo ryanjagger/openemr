@@ -33,4 +33,4 @@ declare(strict_types=1);
         </div>
     </div>
 </section>
-<script src="<?= htmlspecialchars($publicPath, ENT_QUOTES, 'UTF-8') ?>/js/brief_panel.js?v=0.3.0"></script>
+<script src="<?= htmlspecialchars($publicPath, ENT_QUOTES, 'UTF-8') ?>/js/brief_panel.js?v=0.4.0"></script>

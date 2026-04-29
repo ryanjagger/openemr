@@ -33,6 +33,52 @@
         button.disabled = false;
     }
 
+    function renderItem(item) {
+        var li = document.createElement('li');
+        li.className = 'mb-2';
+
+        var badge = document.createElement('span');
+        badge.className = 'badge badge-secondary mr-2';
+        badge.textContent = item.type || 'item';
+        li.appendChild(badge);
+        li.appendChild(document.createTextNode(item.text || ''));
+
+        var excerpts = (item.verbatim_excerpts || []).filter(function (e) {
+            return typeof e === 'string' && e.length > 0;
+        });
+        if (excerpts.length === 0) {
+            return li;
+        }
+
+        // Verbatim source: lets the doc spot-check the paraphrase against the
+        // literal chart text (ARCH §6.3 mitigation for citation-but-misinterpretation).
+        var details = document.createElement('details');
+        details.className = 'mt-1 ml-4 small';
+
+        var summary = document.createElement('summary');
+        summary.className = 'text-muted';
+        summary.style.cursor = 'pointer';
+        summary.textContent = 'show source';
+        details.appendChild(summary);
+
+        var quoteWrap = document.createElement('div');
+        quoteWrap.className = 'border-left pl-2 mt-1 text-monospace';
+        quoteWrap.style.borderColor = '#dee2e6';
+        excerpts.forEach(function (excerpt, idx) {
+            var line = document.createElement('div');
+            line.style.whiteSpace = 'pre-wrap';
+            line.textContent = excerpt;
+            if (idx > 0) {
+                line.classList.add('mt-1');
+            }
+            quoteWrap.appendChild(line);
+        });
+        details.appendChild(quoteWrap);
+
+        li.appendChild(details);
+        return li;
+    }
+
     function renderItems(data) {
         content.classList.remove('text-muted', 'text-danger');
         var items = (data && data.items) || [];
@@ -49,14 +95,7 @@
             var ul = document.createElement('ul');
             ul.className = 'list-unstyled mb-0';
             items.forEach(function (item) {
-                var li = document.createElement('li');
-                li.className = 'mb-1';
-                var badge = document.createElement('span');
-                badge.className = 'badge badge-secondary mr-2';
-                badge.textContent = item.type || 'item';
-                li.appendChild(badge);
-                li.appendChild(document.createTextNode(item.text || ''));
-                ul.appendChild(li);
+                ul.appendChild(renderItem(item));
             });
             content.appendChild(ul);
         }
