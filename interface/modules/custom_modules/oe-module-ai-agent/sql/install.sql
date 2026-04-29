@@ -60,18 +60,24 @@ CREATE TABLE IF NOT EXISTS `llm_call_log` (
     `model_id`                 VARCHAR(128)    NOT NULL,
     `prompt_tokens`            INT             NOT NULL DEFAULT 0,
     `completion_tokens`        INT             NOT NULL DEFAULT 0,
+    `latency_ms`               INT UNSIGNED    NULL,
+    `cost_usd_micros`          BIGINT UNSIGNED NULL,
     `request_hash`             CHAR(64)        NOT NULL,
     `response_hash`            CHAR(64)        NOT NULL,
     `tool_calls`               JSON            NULL,
+    `steps_json`               LONGTEXT        NULL,
     `verification_status`      ENUM('passed', 'partial', 'failed', 'denied') NOT NULL,
     `verification_failures`    JSON            NULL,
+    `error_code`               VARCHAR(64)     NULL,
+    `error_detail`             TEXT            NULL,
     `integrity_checksum`       CHAR(64)        NOT NULL,
     `prev_log_hash`            CHAR(64)        NULL,
     `created_at`               TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     INDEX `idx_patient_user_time` (`patient_id`, `user_id`, `created_at`),
     INDEX `idx_request_id` (`request_id`),
-    INDEX `idx_conversation_id` (`conversation_id`)
+    INDEX `idx_conversation_id` (`conversation_id`),
+    INDEX `idx_action_created` (`action_type`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Idempotent column add for installs that pre-date the chat surface.
@@ -89,3 +95,70 @@ SET @sql := IF(
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
+
+-- Idempotent column add for the observability fields (latency / cost / steps / error).
+-- Each ALTER guards on COLUMN existence so re-running this script is safe.
+SET @col_exists := (
+    SELECT COUNT(*) FROM `information_schema`.`COLUMNS`
+    WHERE `TABLE_SCHEMA` = DATABASE()
+      AND `TABLE_NAME` = 'llm_call_log'
+      AND `COLUMN_NAME` = 'latency_ms'
+);
+SET @sql := IF(
+    @col_exists = 0,
+    'ALTER TABLE `llm_call_log` ADD COLUMN `latency_ms` INT UNSIGNED NULL AFTER `completion_tokens`',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists := (
+    SELECT COUNT(*) FROM `information_schema`.`COLUMNS`
+    WHERE `TABLE_SCHEMA` = DATABASE()
+      AND `TABLE_NAME` = 'llm_call_log'
+      AND `COLUMN_NAME` = 'cost_usd_micros'
+);
+SET @sql := IF(
+    @col_exists = 0,
+    'ALTER TABLE `llm_call_log` ADD COLUMN `cost_usd_micros` BIGINT UNSIGNED NULL AFTER `latency_ms`',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists := (
+    SELECT COUNT(*) FROM `information_schema`.`COLUMNS`
+    WHERE `TABLE_SCHEMA` = DATABASE()
+      AND `TABLE_NAME` = 'llm_call_log'
+      AND `COLUMN_NAME` = 'steps_json'
+);
+SET @sql := IF(
+    @col_exists = 0,
+    'ALTER TABLE `llm_call_log` ADD COLUMN `steps_json` LONGTEXT NULL AFTER `tool_calls`',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists := (
+    SELECT COUNT(*) FROM `information_schema`.`COLUMNS`
+    WHERE `TABLE_SCHEMA` = DATABASE()
+      AND `TABLE_NAME` = 'llm_call_log'
+      AND `COLUMN_NAME` = 'error_code'
+);
+SET @sql := IF(
+    @col_exists = 0,
+    'ALTER TABLE `llm_call_log` ADD COLUMN `error_code` VARCHAR(64) NULL AFTER `verification_failures`, ADD COLUMN `error_detail` TEXT NULL AFTER `error_code`',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (
+    SELECT COUNT(*) FROM `information_schema`.`STATISTICS`
+    WHERE `TABLE_SCHEMA` = DATABASE()
+      AND `TABLE_NAME` = 'llm_call_log'
+      AND `INDEX_NAME` = 'idx_action_created'
+);
+SET @sql := IF(
+    @idx_exists = 0,
+    'ALTER TABLE `llm_call_log` ADD INDEX `idx_action_created` (`action_type`, `created_at`)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

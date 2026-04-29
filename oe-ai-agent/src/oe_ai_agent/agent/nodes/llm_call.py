@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from oe_ai_agent.agent.state import AgentState
 from oe_ai_agent.llm.client import LlmClient
 from oe_ai_agent.llm.prompts import build_messages, response_format
+from oe_ai_agent.observability import current_trace, step
 from oe_ai_agent.schemas.brief import BriefItemType
 
 LlmCallNode = Callable[[AgentState], Awaitable[dict[str, object]]]
@@ -19,8 +20,19 @@ def make_llm_call_node(
     types = allowed_types if allowed_types is not None else frozenset(BriefItemType)
 
     async def llm_call_node(state: AgentState) -> dict[str, object]:
-        messages = build_messages(state.patient_uuid, state.tool_results, types)
-        raw = await llm.chat(messages, response_format=response_format(types))
-        return {"raw_llm_output": raw}
+        async with step("llm_call", model=llm.model_id) as record:
+            messages = build_messages(state.patient_uuid, state.tool_results, types)
+            result = await llm.chat(messages, response_format=response_format(types))
+            record.attrs.update(
+                {
+                    "prompt_tokens": result.usage.prompt_tokens,
+                    "completion_tokens": result.usage.completion_tokens,
+                    "latency_ms": result.usage.latency_ms,
+                }
+            )
+            collector = current_trace()
+            if collector is not None:
+                collector.add_usage(result.usage)
+        return {"raw_llm_output": result.content}
 
     return llm_call_node

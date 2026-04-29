@@ -11,8 +11,9 @@ import respx
 
 from oe_ai_agent.agent.chat_state import ChatState
 from oe_ai_agent.agent.graph_chat import build_chat_graph
-from oe_ai_agent.llm.client import LlmChatResult, LlmToolCall
+from oe_ai_agent.llm.client import LlmChatResult, LlmToolCall, LlmUsage
 from oe_ai_agent.llm.mock_client import MockLlmClient
+from oe_ai_agent.observability import use_trace
 from oe_ai_agent.schemas.chat import ChatMessage, ChatRole
 
 PATIENT = "patient-uuid-1"
@@ -106,6 +107,57 @@ async def test_happy_path_emits_narrative_and_verified_facts() -> None:
     assert len(final["verified_facts"]) == 1
     assert final["verified_facts"][0].citations[0].resource_id == "med-1"
     assert final["verification_failures"] == []
+
+
+@pytest.mark.asyncio
+async def test_happy_path_records_step_trace_with_usage() -> None:
+    """The trace collector should fill in step records and usage when active."""
+    envelope = json.dumps(
+        {
+            "narrative": "She is on lisinopril 10 mg [^1].",
+            "facts": [
+                {
+                    "type": "med_current",
+                    "text": "Lisinopril 10 mg, active",
+                    "verbatim_excerpts": ["Lisinopril 10 mg"],
+                    "citations": [
+                        {"resource_type": "MedicationRequest", "resource_id": "med-1"}
+                    ],
+                    "anchor": 1,
+                }
+            ],
+        }
+    )
+    llm = MockLlmClient(
+        chat_scripted=LlmChatResult(
+            content=envelope,
+            tool_calls=[],
+            usage=LlmUsage(
+                prompt_tokens=42, completion_tokens=8, total_tokens=50, latency_ms=12
+            ),
+        )
+    )
+
+    with respx.mock(assert_all_called=False) as mock:
+        _fhir_routes(mock)
+        graph = build_chat_graph(llm)
+        async with use_trace() as trace:
+            await graph.ainvoke(  # type: ignore[attr-defined]
+                _initial_state([ChatMessage(role=ChatRole.USER, content="meds?")])
+            )
+
+    step_names = [r["name"] for r in trace.to_list()]
+    # to_list() sorts by start time so the admin timeline reads naturally:
+    # ensure_context begins first, verify_chat begins last.
+    assert step_names[0] == "ensure_context"
+    assert step_names[-1] == "verify_chat"
+    assert "llm_turn" in step_names
+    assert "parse_envelope" in step_names
+
+    summary = trace.usage_summary()
+    assert summary["prompt_tokens"] == 42
+    assert summary["completion_tokens"] == 8
+    assert summary["total_tokens"] == 50
 
 
 @pytest.mark.asyncio

@@ -13,6 +13,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from oe_ai_agent.schemas.observability import ResponseMeta
+
 
 class BriefItemType(StrEnum):
     MED_CURRENT = "med_current"
@@ -70,6 +72,7 @@ class BriefResponse(BaseModel):
     model_id: str
     items: list[BriefItem] = Field(default_factory=list)
     verification_failures: list[VerificationFailure] = Field(default_factory=list)
+    meta: ResponseMeta = Field(default_factory=ResponseMeta)
 
     def model_dump_json_safe(self) -> dict[str, Any]:
         """JSON-safe dump: avoids leaking SecretStr values from any nested fields."""

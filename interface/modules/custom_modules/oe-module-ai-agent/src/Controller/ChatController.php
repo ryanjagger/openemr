@@ -21,6 +21,7 @@ use OpenEMR\Modules\AiAgent\DTO\ChatRequest;
 use OpenEMR\Modules\AiAgent\DTO\ChatTurnResponse;
 use OpenEMR\Modules\AiAgent\DTO\LlmCallLogEntry;
 use OpenEMR\Modules\AiAgent\DTO\LlmCallVerificationStatus;
+use OpenEMR\Modules\AiAgent\DTO\ResponseMeta;
 use OpenEMR\Modules\AiAgent\Service\AuditLogService;
 use OpenEMR\Modules\AiAgent\Service\BearerTokenMinter;
 use OpenEMR\Modules\AiAgent\Service\PatientAccessValidator;
@@ -80,6 +81,7 @@ final class ChatController
                 verificationFailures: null,
                 httpStatus: 401,
                 payload: ['error' => 'no_authenticated_user', 'request_id' => $requestId],
+                errorCode: 'no_authenticated_user',
             );
         }
 
@@ -96,6 +98,7 @@ final class ChatController
                 verificationFailures: null,
                 httpStatus: 403,
                 payload: ['error' => 'forbidden', 'request_id' => $requestId],
+                errorCode: 'forbidden',
             );
         }
 
@@ -112,6 +115,7 @@ final class ChatController
                 verificationFailures: null,
                 httpStatus: 400,
                 payload: ['error' => 'empty_messages', 'request_id' => $requestId],
+                errorCode: 'empty_messages',
             );
         }
 
@@ -129,6 +133,7 @@ final class ChatController
                 verificationFailures: null,
                 httpStatus: 404,
                 payload: ['error' => 'patient_not_found', 'request_id' => $requestId],
+                errorCode: 'patient_not_found',
             );
         }
 
@@ -151,6 +156,8 @@ final class ChatController
                 verificationFailures: null,
                 httpStatus: 500,
                 payload: ['error' => 'token_mint_failed', 'request_id' => $requestId],
+                errorCode: 'token_mint_failed',
+                errorDetail: substr($e->getMessage(), 0, 1000),
             );
         }
 
@@ -166,9 +173,11 @@ final class ChatController
             messages: $messages,
         );
 
+        $startedAt = microtime(true);
         try {
             $chatResponse = $this->sidecarClient->fetchChatTurn($chatRequest);
         } catch (Throwable $e) {
+            $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
             return $this->finalize(
                 requestId: $requestId,
                 conversationId: $conversationId,
@@ -181,10 +190,14 @@ final class ChatController
                 verificationFailures: null,
                 httpStatus: 502,
                 payload: ['error' => 'sidecar_unreachable', 'request_id' => $requestId],
+                errorCode: 'sidecar_unreachable',
+                errorDetail: substr($e->getMessage(), 0, 1000),
+                latencyMs: $latencyMs,
             );
         }
 
         $payload = $chatResponse->toArray();
+        $errorCode = $this->firstFailureRule($chatResponse->verificationFailures);
 
         return $this->finalize(
             requestId: $requestId,
@@ -198,6 +211,8 @@ final class ChatController
             verificationFailures: $chatResponse->verificationFailures,
             httpStatus: 200,
             payload: $payload,
+            meta: $chatResponse->meta,
+            errorCode: $errorCode,
         );
     }
 
@@ -219,20 +234,35 @@ final class ChatController
         ?array $verificationFailures,
         int $httpStatus,
         array $payload,
+        ?ResponseMeta $meta = null,
+        ?string $errorCode = null,
+        ?string $errorDetail = null,
+        ?int $latencyMs = null,
     ): array {
+        $resolvedLatencyMs = $meta !== null ? $meta->latencyMsTotal : $latencyMs;
+        $resolvedCostMicros = $meta?->costUsdMicros();
+        $stepsJson = $meta !== null && $meta->steps !== []
+            ? json_encode($meta->steps, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)
+            : null;
+
         $this->auditLogService->record(new LlmCallLogEntry(
             requestId: $requestId,
             userId: $userId,
             patientId: $patientId,
             actionType: AuditLogService::ACTION_CHAT_TURN,
             modelId: $modelId,
-            promptTokens: 0,
-            completionTokens: 0,
+            promptTokens: $meta !== null ? $meta->promptTokens : 0,
+            completionTokens: $meta !== null ? $meta->completionTokens : 0,
             requestHash: $requestHash,
             responseHash: $responseHash,
             verificationFailures: $verificationFailures,
             verificationStatus: $status,
             conversationId: $conversationId,
+            latencyMs: $resolvedLatencyMs,
+            costUsdMicros: $resolvedCostMicros,
+            stepsJson: $stepsJson,
+            errorCode: $errorCode,
+            errorDetail: $errorDetail,
         ));
 
         if ($httpStatus !== 200) {
@@ -240,6 +270,18 @@ final class ChatController
         }
 
         return $payload;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $failures
+     */
+    private function firstFailureRule(array $failures): ?string
+    {
+        if ($failures === []) {
+            return null;
+        }
+        $rule = $failures[0]['rule'] ?? null;
+        return is_string($rule) && $rule !== '' ? $rule : 'verification_failed';
     }
 
     private function classifyOutcome(ChatTurnResponse $response): LlmCallVerificationStatus

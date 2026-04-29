@@ -20,6 +20,7 @@ use OpenEMR\Modules\AiAgent\DTO\BriefRequest;
 use OpenEMR\Modules\AiAgent\DTO\BriefResponse;
 use OpenEMR\Modules\AiAgent\DTO\LlmCallLogEntry;
 use OpenEMR\Modules\AiAgent\DTO\LlmCallVerificationStatus;
+use OpenEMR\Modules\AiAgent\DTO\ResponseMeta;
 use OpenEMR\Modules\AiAgent\Service\AuditLogService;
 use OpenEMR\Modules\AiAgent\Service\BearerTokenMinter;
 use OpenEMR\Modules\AiAgent\Service\PatientAccessValidator;
@@ -60,7 +61,6 @@ final class BriefController
         $userUuid = $userId !== 0 ? $this->resolveUserUuid($userId) : null;
         if ($userUuid === null) {
             return $this->finalize(
-                pid: $pid,
                 requestId: $requestId,
                 userId: $userId,
                 patientId: $patientId,
@@ -71,12 +71,12 @@ final class BriefController
                 verificationFailures: null,
                 httpStatus: 401,
                 payload: ['error' => 'no_authenticated_user', 'request_id' => $requestId],
+                errorCode: 'no_authenticated_user',
             );
         }
 
         if (!$this->patientAccessValidator->canRead($pid)) {
             return $this->finalize(
-                pid: $pid,
                 requestId: $requestId,
                 userId: $userId,
                 patientId: $patientId,
@@ -87,13 +87,13 @@ final class BriefController
                 verificationFailures: null,
                 httpStatus: 403,
                 payload: ['error' => 'forbidden', 'request_id' => $requestId],
+                errorCode: 'forbidden',
             );
         }
 
         $patientUuid = $this->resolvePatientUuid($pid);
         if ($patientUuid === null) {
             return $this->finalize(
-                pid: $pid,
                 requestId: $requestId,
                 userId: $userId,
                 patientId: $patientId,
@@ -104,6 +104,7 @@ final class BriefController
                 verificationFailures: null,
                 httpStatus: 404,
                 payload: ['error' => 'patient_not_found', 'request_id' => $requestId],
+                errorCode: 'patient_not_found',
             );
         }
 
@@ -115,7 +116,6 @@ final class BriefController
         } catch (Throwable $e) {
             error_log('oe-module-ai-agent: token mint failed: ' . $e->getMessage());
             return $this->finalize(
-                pid: $pid,
                 requestId: $requestId,
                 userId: $userId,
                 patientId: $patientId,
@@ -126,6 +126,8 @@ final class BriefController
                 verificationFailures: null,
                 httpStatus: 500,
                 payload: ['error' => 'token_mint_failed', 'request_id' => $requestId],
+                errorCode: 'token_mint_failed',
+                errorDetail: substr($e->getMessage(), 0, 1000),
             );
         }
 
@@ -139,11 +141,12 @@ final class BriefController
             requestId: $requestId,
         );
 
+        $startedAt = microtime(true);
         try {
             $briefResponse = $this->sidecarClient->fetchBrief($briefRequest);
         } catch (Throwable $e) {
+            $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
             return $this->finalize(
-                pid: $pid,
                 requestId: $requestId,
                 userId: $userId,
                 patientId: $patientId,
@@ -154,13 +157,16 @@ final class BriefController
                 verificationFailures: null,
                 httpStatus: 502,
                 payload: ['error' => 'sidecar_unreachable', 'request_id' => $requestId],
+                errorCode: 'sidecar_unreachable',
+                errorDetail: substr($e->getMessage(), 0, 1000),
+                latencyMs: $latencyMs,
             );
         }
 
         $payload = $briefResponse->toArray();
+        $errorCode = $this->firstFailureRule($briefResponse->verificationFailures);
 
         return $this->finalize(
-            pid: $pid,
             requestId: $requestId,
             userId: $userId,
             patientId: $patientId,
@@ -171,6 +177,8 @@ final class BriefController
             verificationFailures: $briefResponse->verificationFailures,
             httpStatus: 200,
             payload: $payload,
+            meta: $briefResponse->meta,
+            errorCode: $errorCode,
         );
     }
 
@@ -181,7 +189,6 @@ final class BriefController
      * @return array<string, mixed>
      */
     private function finalize(
-        string $pid,
         string $requestId,
         int $userId,
         int $patientId,
@@ -192,19 +199,36 @@ final class BriefController
         ?array $verificationFailures,
         int $httpStatus,
         array $payload,
+        ?ResponseMeta $meta = null,
+        ?string $errorCode = null,
+        ?string $errorDetail = null,
+        ?int $latencyMs = null,
     ): array {
+        // When the sidecar returned a meta block, prefer its numbers.
+        // PHP-side latency is only used for failure paths where there's no meta.
+        $resolvedLatencyMs = $meta !== null ? $meta->latencyMsTotal : $latencyMs;
+        $resolvedCostMicros = $meta?->costUsdMicros();
+        $stepsJson = $meta !== null && $meta->steps !== []
+            ? json_encode($meta->steps, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)
+            : null;
+
         $this->auditLogService->record(new LlmCallLogEntry(
             requestId: $requestId,
             userId: $userId,
             patientId: $patientId,
             actionType: AuditLogService::ACTION_BRIEF_READ,
             modelId: $modelId,
-            promptTokens: 0,
-            completionTokens: 0,
+            promptTokens: $meta !== null ? $meta->promptTokens : 0,
+            completionTokens: $meta !== null ? $meta->completionTokens : 0,
             requestHash: $requestHash,
             responseHash: $responseHash,
             verificationFailures: $verificationFailures,
             verificationStatus: $status,
+            latencyMs: $resolvedLatencyMs,
+            costUsdMicros: $resolvedCostMicros,
+            stepsJson: $stepsJson,
+            errorCode: $errorCode,
+            errorDetail: $errorDetail,
         ));
 
         if ($httpStatus !== 200) {
@@ -212,6 +236,18 @@ final class BriefController
         }
 
         return $payload;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $failures
+     */
+    private function firstFailureRule(array $failures): ?string
+    {
+        if ($failures === []) {
+            return null;
+        }
+        $rule = $failures[0]['rule'] ?? null;
+        return is_string($rule) && $rule !== '' ? $rule : 'verification_failed';
     }
 
     private function classifyOutcome(BriefResponse $response): LlmCallVerificationStatus

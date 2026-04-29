@@ -12,6 +12,9 @@ Modes:
 * ``MockLlmClient(chat_scripted=...)`` — scripted ``chat_with_tools``
   responder for chat-graph tests. Accepts a fixed ``LlmChatResult`` or a
   callable that receives the messages and returns one.
+
+Mock responses default to a zero-valued ``LlmUsage``; tests that care about
+observability can pass ``default_usage=...`` to override it.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from oe_ai_agent.llm.client import LlmChatResult
+from oe_ai_agent.llm.client import LlmChatResult, LlmCompletionResult, LlmUsage
 
 _CONTEXT_LINE_RE = re.compile(
     r"^- (?P<rtype>\w+)/(?P<rid>[\w\-:]+)(?: \[(?P<note>[^\]]*)\])?$",
@@ -41,22 +44,26 @@ class MockLlmClient:
         scripted: str | Callable[[list[dict[str, str]], dict[str, Any] | None], str] | None = None,
         *,
         chat_scripted: ChatScript | None = None,
+        default_usage: LlmUsage | None = None,
     ) -> None:
         self._scripted = scripted
         self._chat_scripted = chat_scripted
+        self._default_usage = default_usage or LlmUsage()
 
     async def chat(
         self,
         messages: list[dict[str, str]],
         response_format: dict[str, Any] | None = None,
-    ) -> str:
+    ) -> LlmCompletionResult:
         if self._scripted is None:
             raise RuntimeError(
                 "MockLlmClient.chat() called without a scripted responder",
             )
         if callable(self._scripted):
-            return self._scripted(messages, response_format)
-        return self._scripted
+            text = self._scripted(messages, response_format)
+        else:
+            text = self._scripted
+        return LlmCompletionResult(content=text, usage=self._default_usage)
 
     async def chat_with_tools(
         self,
@@ -68,11 +75,25 @@ class MockLlmClient:
         if self._chat_scripted is None:
             # Fall back to .chat()-style scripting if only a string was provided —
             # tests that don't need tool_calls can still drive chat_with_tools.
-            text = await self.chat(messages, response_format)
-            return LlmChatResult(content=text, tool_calls=[])
+            completion = await self.chat(messages, response_format)
+            return LlmChatResult(
+                content=completion.content,
+                tool_calls=[],
+                usage=completion.usage,
+            )
         if callable(self._chat_scripted):
-            return self._chat_scripted(messages)
-        return self._chat_scripted
+            result = self._chat_scripted(messages)
+        else:
+            result = self._chat_scripted
+        # If the script didn't supply a usage, attach the default so the
+        # downstream pipeline always has a non-None usage to read.
+        if result.usage == LlmUsage():
+            result = LlmChatResult(
+                content=result.content,
+                tool_calls=list(result.tool_calls),
+                usage=self._default_usage,
+            )
+        return result
 
     @classmethod
     def synthesizing(cls) -> MockLlmClient:

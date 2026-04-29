@@ -8,18 +8,25 @@ Notes:
 * JSON-mode is requested through ``response_format``; LiteLLM translates
   per-provider. Anthropic implements this via tool-use under the hood.
   ``parse_output`` is the safety net if a provider produces non-JSON.
-* Prompt caching for the system prompt is a follow-up — small payload at
-  MVP traffic levels.
+* Usage (tokens, cost, latency) is captured for every call so the audit
+  log and admin viewer can answer the four observability questions.
 """
 
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 import litellm
 
-from oe_ai_agent.llm.client import LlmChatResult, LlmToolCall
+from oe_ai_agent.llm.client import (
+    LlmChatResult,
+    LlmCompletionResult,
+    LlmToolCall,
+    LlmUsage,
+)
+from oe_ai_agent.observability.cost import compute_completion_cost
 
 DEFAULT_MODEL = "anthropic/claude-sonnet-4-6"
 
@@ -44,16 +51,20 @@ class LiteLLMClient:
         self,
         messages: list[dict[str, str]],
         response_format: dict[str, Any] | None = None,
-    ) -> str:
+    ) -> LlmCompletionResult:
         kwargs = self._base_kwargs(messages)
         if response_format is not None:
             kwargs["response_format"] = response_format
 
+        started = time.monotonic_ns()
         response = await litellm.acompletion(**kwargs)
+        latency_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
+        usage = _extract_usage(response, latency_ms)
+
         choices = response["choices"]
         content = choices[0]["message"].get("content")
         if isinstance(content, str) and content.strip():
-            return content
+            return LlmCompletionResult(content=content, usage=usage)
         # Some providers return content as a list of parts; flatten to text.
         if isinstance(content, list):
             text_parts = [
@@ -63,10 +74,10 @@ class LiteLLMClient:
             ]
             joined = "".join(text_parts).strip()
             if joined:
-                return joined
+                return LlmCompletionResult(content=joined, usage=usage)
         # If we got here the model produced no text content; surface as JSON
         # null body so parse_output can record a parse_error rather than crash.
-        return json.dumps({"items": []})
+        return LlmCompletionResult(content=json.dumps({"items": []}), usage=usage)
 
     async def chat_with_tools(
         self,
@@ -81,11 +92,16 @@ class LiteLLMClient:
         if response_format is not None:
             kwargs["response_format"] = response_format
 
+        started = time.monotonic_ns()
         response = await litellm.acompletion(**kwargs)
+        latency_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
+        usage = _extract_usage(response, latency_ms)
+
         message = response["choices"][0]["message"]
         return LlmChatResult(
             content=_extract_text(message.get("content")),
             tool_calls=_extract_tool_calls(message.get("tool_calls") or []),
+            usage=usage,
         )
 
     def _base_kwargs(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
@@ -139,3 +155,43 @@ def _extract_tool_calls(raw_calls: list[Any]) -> list[LlmToolCall]:
             tool_call_id = str(tool_call_id)
         calls.append(LlmToolCall(tool_call_id=tool_call_id, name=name, arguments=arguments))
     return calls
+
+
+def _extract_usage(response: Any, latency_ms: int) -> LlmUsage:
+    """Pull token counts from the response and compute cost.
+
+    LiteLLM normalizes ``usage`` to OpenAI's shape (``prompt_tokens``,
+    ``completion_tokens``, ``total_tokens``). Some providers omit it, in
+    which case we record latency only.
+    """
+    usage_obj = _attr_or_key(response, "usage")
+    prompt_tokens = _coerce_int(_attr_or_key(usage_obj, "prompt_tokens"))
+    completion_tokens = _coerce_int(_attr_or_key(usage_obj, "completion_tokens"))
+    total_tokens = _coerce_int(_attr_or_key(usage_obj, "total_tokens"))
+    if total_tokens == 0 and (prompt_tokens or completion_tokens):
+        total_tokens = prompt_tokens + completion_tokens
+    cost_usd = compute_completion_cost(response)
+    return LlmUsage(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
+        cost_usd=cost_usd,
+        latency_ms=latency_ms,
+    )
+
+
+def _attr_or_key(obj: Any, name: str) -> Any:
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
+def _coerce_int(value: Any) -> int:
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0

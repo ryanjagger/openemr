@@ -16,6 +16,8 @@ use OpenEMR\Modules\AiAgent\DTO\BriefRequest;
 use OpenEMR\Modules\AiAgent\DTO\BriefResponse;
 use OpenEMR\Modules\AiAgent\DTO\ChatRequest;
 use OpenEMR\Modules\AiAgent\DTO\ChatTurnResponse;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use RuntimeException;
 use Symfony\Component\HttpClient\HttpClient;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
@@ -29,6 +31,7 @@ final class SidecarClient
         private readonly string $baseUrl,
         private readonly string $internalAuthSecret,
         private readonly HttpClientInterface $httpClient = new \Symfony\Component\HttpClient\NativeHttpClient(),
+        private readonly LoggerInterface $logger = new NullLogger(),
     ) {
     }
 
@@ -49,14 +52,14 @@ final class SidecarClient
 
     public function fetchBrief(BriefRequest $request): BriefResponse
     {
-        $decoded = $this->postJson('/v1/brief', $request->toArray());
+        $decoded = $this->postJson('/v1/brief', $request->toArray(), $request->requestId);
 
         return BriefResponse::fromArray($decoded);
     }
 
     public function fetchChatTurn(ChatRequest $request): ChatTurnResponse
     {
-        $decoded = $this->postJson('/v1/chat', $request->toArray());
+        $decoded = $this->postJson('/v1/chat', $request->toArray(), $request->requestId);
 
         return ChatTurnResponse::fromArray($decoded);
     }
@@ -66,8 +69,13 @@ final class SidecarClient
      *
      * @return array<string, mixed>
      */
-    private function postJson(string $path, array $body): array
+    private function postJson(string $path, array $body, string $requestId): array
     {
+        $startedAt = microtime(true);
+        $this->logger->debug('sidecar.request.start', [
+            'path' => $path,
+            'request_id' => $requestId,
+        ]);
         try {
             $response = $this->httpClient->request(
                 method: 'POST',
@@ -82,16 +90,36 @@ final class SidecarClient
                 ],
             );
             $status = $response->getStatusCode();
+            $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
             if ($status !== 200) {
                 $raw = $response->getContent(throw: false);
-                error_log("oe-module-ai-agent: sidecar HTTP {$status}: " . substr($raw, 0, 400));
+                $this->logger->warning('sidecar.request.http_error', [
+                    'path' => $path,
+                    'request_id' => $requestId,
+                    'status' => $status,
+                    'latency_ms' => $latencyMs,
+                    'body_preview' => substr($raw, 0, 400),
+                ]);
                 throw new RuntimeException("Sidecar returned HTTP {$status}");
             }
             /** @var array<string, mixed> $decoded */
             $decoded = json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR);
+            $this->logger->info('sidecar.request.complete', [
+                'path' => $path,
+                'request_id' => $requestId,
+                'status' => $status,
+                'latency_ms' => $latencyMs,
+            ]);
 
             return $decoded;
         } catch (TransportExceptionInterface $e) {
+            $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
+            $this->logger->error('sidecar.request.transport_error', [
+                'path' => $path,
+                'request_id' => $requestId,
+                'latency_ms' => $latencyMs,
+                'error' => $e->getMessage(),
+            ]);
             throw new RuntimeException('Sidecar transport error', previous: $e);
         }
     }

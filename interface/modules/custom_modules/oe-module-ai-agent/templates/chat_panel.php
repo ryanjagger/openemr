@@ -53,4 +53,4 @@ declare(strict_types=1);
         </div>
     </div>
 </section>
-<script src="<?= htmlspecialchars($publicPath, ENT_QUOTES, 'UTF-8') ?>/js/chat_panel.js?v=0.5.2"></script>
+<script src="<?= htmlspecialchars($publicPath, ENT_QUOTES, 'UTF-8') ?>/js/chat_panel.js?v=0.6.0"></script>

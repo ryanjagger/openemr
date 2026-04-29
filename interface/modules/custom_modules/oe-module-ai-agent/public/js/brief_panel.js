@@ -157,7 +157,38 @@
             content.appendChild(note);
         }
 
+        appendUsageFooter(content, data && data.meta);
+
         button.disabled = false;
+    }
+
+    function appendUsageFooter(parent, meta) {
+        if (!meta || !meta.usage) {
+            return;
+        }
+        var usage = meta.usage;
+        var parts = [];
+        if (typeof usage.latency_ms_total === 'number' && usage.latency_ms_total >= 0) {
+            parts.push(usage.latency_ms_total + ' ms');
+        }
+        if (typeof usage.total_tokens === 'number' && usage.total_tokens > 0) {
+            parts.push(usage.total_tokens + ' tok');
+        } else if (
+            typeof usage.prompt_tokens === 'number' && typeof usage.completion_tokens === 'number'
+            && (usage.prompt_tokens + usage.completion_tokens) > 0
+        ) {
+            parts.push((usage.prompt_tokens + usage.completion_tokens) + ' tok');
+        }
+        if (typeof usage.cost_usd === 'number' && usage.cost_usd > 0) {
+            parts.push('$' + usage.cost_usd.toFixed(4));
+        }
+        if (parts.length === 0) {
+            return;
+        }
+        var footer = document.createElement('div');
+        footer.className = 'small text-muted mt-2';
+        footer.textContent = parts.join(' · ');
+        parent.appendChild(footer);
     }
 
     function generate() {

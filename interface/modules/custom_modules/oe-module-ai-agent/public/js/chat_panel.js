@@ -51,7 +51,7 @@
         log.scrollTop = log.scrollHeight;
     }
 
-    function appendAssistantBubble(narrative, facts, failures) {
+    function appendAssistantBubble(narrative, facts, failures, meta) {
         var wrap = document.createElement('div');
         wrap.className = 'mb-2';
 
@@ -86,9 +86,42 @@
             bubble.appendChild(note);
         }
 
+        appendUsageFooter(bubble, meta);
+
         wrap.appendChild(bubble);
         log.appendChild(wrap);
         log.scrollTop = log.scrollHeight;
+    }
+
+    function appendUsageFooter(parent, meta) {
+        if (!meta || !meta.usage) {
+            return;
+        }
+        var usage = meta.usage;
+        var parts = [];
+        if (typeof usage.latency_ms_total === 'number' && usage.latency_ms_total >= 0) {
+            parts.push(usage.latency_ms_total + ' ms');
+        }
+        var totalTokens = typeof usage.total_tokens === 'number' && usage.total_tokens > 0
+            ? usage.total_tokens
+            : (
+                typeof usage.prompt_tokens === 'number' && typeof usage.completion_tokens === 'number'
+                    ? usage.prompt_tokens + usage.completion_tokens
+                    : 0
+            );
+        if (totalTokens > 0) {
+            parts.push(totalTokens + ' tok');
+        }
+        if (typeof usage.cost_usd === 'number' && usage.cost_usd > 0) {
+            parts.push('$' + usage.cost_usd.toFixed(4));
+        }
+        if (parts.length === 0) {
+            return;
+        }
+        var footer = document.createElement('div');
+        footer.className = 'small text-muted mt-2';
+        footer.textContent = parts.join(' · ');
+        parent.appendChild(footer);
     }
 
     function appendErrorBubble(code, requestId) {
@@ -283,7 +316,7 @@
                 role: 'assistant',
                 content: data.narrative || ''
             });
-            appendAssistantBubble(data.narrative, data.facts, data.verification_failures);
+            appendAssistantBubble(data.narrative, data.facts, data.verification_failures, data.meta);
         }).catch(function () {
             appendErrorBubble('network', null);
             state.messages.pop();

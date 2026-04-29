@@ -25,6 +25,7 @@ final readonly class ChatTurnResponse
         public string $narrative,
         public array $facts,
         public array $verificationFailures,
+        public ResponseMeta $meta,
     ) {
     }
 
@@ -35,7 +36,8 @@ final readonly class ChatTurnResponse
      *     model_id?: string,
      *     narrative?: string,
      *     facts?: list<array<string, mixed>>,
-     *     verification_failures?: list<array<string, mixed>>
+     *     verification_failures?: list<array<string, mixed>>,
+     *     meta?: array<string, mixed>
      * } $payload
      */
     public static function fromArray(array $payload): self
@@ -46,6 +48,9 @@ final readonly class ChatTurnResponse
             $facts[] = BriefItem::fromArray($rawFact);
         }
 
+        $rawMeta = $payload['meta'] ?? null;
+        $meta = is_array($rawMeta) ? ResponseMeta::fromArray($rawMeta) : ResponseMeta::empty();
+
         return new self(
             requestId: (string) ($payload['request_id'] ?? ''),
             conversationId: (string) ($payload['conversation_id'] ?? ''),
@@ -53,25 +58,12 @@ final readonly class ChatTurnResponse
             narrative: (string) ($payload['narrative'] ?? ''),
             facts: $facts,
             verificationFailures: array_values($payload['verification_failures'] ?? []),
+            meta: $meta,
         );
     }
 
     /**
-     * @return array{
-     *     request_id: string,
-     *     conversation_id: string,
-     *     model_id: string,
-     *     narrative: string,
-     *     facts: list<array{
-     *         type: string,
-     *         text: string,
-     *         verbatim_excerpts: list<string>,
-     *         citations: list<array{resource_type: string, resource_id: string}>,
-     *         verified: bool,
-     *         anchor: int|null
-     *     }>,
-     *     verification_failures: list<array<string, mixed>>
-     * }
+     * @return array<string, mixed>
      */
     public function toArray(): array
     {
@@ -98,6 +90,7 @@ final readonly class ChatTurnResponse
                 $this->facts,
             ),
             'verification_failures' => $this->verificationFailures,
+            'meta' => $this->meta->toArray(),
         ];
     }
 }

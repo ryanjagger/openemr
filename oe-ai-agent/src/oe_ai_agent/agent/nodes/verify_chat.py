@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from oe_ai_agent.agent.chat_state import ChatState
+from oe_ai_agent.observability import step
 from oe_ai_agent.schemas.brief import BriefItemType
 from oe_ai_agent.verifier import verify_items
 from oe_ai_agent.verifier.narrative import check_narrative_grounding
@@ -34,29 +35,38 @@ def make_verify_chat_node(
     types = allowed_types if allowed_types is not None else frozenset(BriefItemType)
 
     async def verify_chat_node(state: ChatState) -> dict[str, object]:
-        fact_result = verify_items(
-            state.parsed_facts,
-            state.cached_context,
-            expected_patient_uuid=state.patient_uuid,
-            allowed_types=types,
-        )
-        verified_facts = fact_result.verified
-        failures = list(fact_result.failures)
+        async with step("verify_chat") as record:
+            fact_result = verify_items(
+                state.parsed_facts,
+                state.cached_context,
+                expected_patient_uuid=state.patient_uuid,
+                allowed_types=types,
+            )
+            verified_facts = fact_result.verified
+            failures = list(fact_result.failures)
 
-        narrative_failure = check_narrative_grounding(
-            state.parsed_narrative, verified_facts
-        )
-        if narrative_failure is not None:
-            failures.append(narrative_failure)
+            narrative_failure = check_narrative_grounding(
+                state.parsed_narrative, verified_facts
+            )
+            record.attrs.update(
+                {
+                    "verified_count": len(verified_facts),
+                    "failure_count": len(failures),
+                    "narrative_grounded": narrative_failure is None,
+                }
+            )
+            if narrative_failure is not None:
+                failures.append(narrative_failure)
+                record.attrs["narrative_failure_rule"] = narrative_failure.rule
+                return {
+                    "verified_facts": verified_facts,
+                    "verification_failures": failures,
+                    "parsed_narrative": _FALLBACK_NARRATIVE,
+                }
+
             return {
                 "verified_facts": verified_facts,
                 "verification_failures": failures,
-                "parsed_narrative": _FALLBACK_NARRATIVE,
             }
-
-        return {
-            "verified_facts": verified_facts,
-            "verification_failures": failures,
-        }
 
     return verify_chat_node

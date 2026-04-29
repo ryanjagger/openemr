@@ -23,6 +23,7 @@ final readonly class BriefResponse
         public string $modelId,
         public array $items,
         public array $verificationFailures,
+        public ResponseMeta $meta,
     ) {
     }
 
@@ -31,7 +32,8 @@ final readonly class BriefResponse
      *     request_id?: string,
      *     model_id?: string,
      *     items?: list<array<string, mixed>>,
-     *     verification_failures?: list<array<string, mixed>>
+     *     verification_failures?: list<array<string, mixed>>,
+     *     meta?: array<string, mixed>
      * } $payload
      */
     public static function fromArray(array $payload): self
@@ -42,27 +44,20 @@ final readonly class BriefResponse
             $items[] = BriefItem::fromArray($rawItem);
         }
 
+        $rawMeta = $payload['meta'] ?? null;
+        $meta = is_array($rawMeta) ? ResponseMeta::fromArray($rawMeta) : ResponseMeta::empty();
+
         return new self(
             requestId: (string) ($payload['request_id'] ?? ''),
             modelId: (string) ($payload['model_id'] ?? 'unknown'),
             items: $items,
             verificationFailures: array_values($payload['verification_failures'] ?? []),
+            meta: $meta,
         );
     }
 
     /**
-     * @return array{
-     *     request_id: string,
-     *     model_id: string,
-     *     items: list<array{
-     *         type: string,
-     *         text: string,
-     *         verbatim_excerpts: list<string>,
-     *         citations: list<array{resource_type: string, resource_id: string}>,
-     *         verified: bool
-     *     }>,
-     *     verification_failures: list<array<string, mixed>>
-     * }
+     * @return array<string, mixed>
      */
     public function toArray(): array
     {
@@ -86,6 +81,7 @@ final readonly class BriefResponse
                 $this->items,
             ),
             'verification_failures' => $this->verificationFailures,
+            'meta' => $this->meta->toArray(),
         ];
     }
 }

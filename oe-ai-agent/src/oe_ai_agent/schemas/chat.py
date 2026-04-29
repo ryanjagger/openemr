@@ -14,6 +14,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from oe_ai_agent.schemas.brief import BriefItem, VerificationFailure
+from oe_ai_agent.schemas.observability import ResponseMeta
 
 
 class ChatRole(StrEnum):
@@ -50,6 +51,7 @@ class ChatTurnResponse(BaseModel):
     narrative: str
     facts: list[BriefItem] = Field(default_factory=list)
     verification_failures: list[VerificationFailure] = Field(default_factory=list)
+    meta: ResponseMeta = Field(default_factory=ResponseMeta)
 
     def model_dump_json_safe(self) -> dict[str, Any]:
         return self.model_dump(mode="json")

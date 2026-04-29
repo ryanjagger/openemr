@@ -18,6 +18,11 @@ namespace OpenEMR\Modules\AiAgent\DTO;
  * The HMAC integrity_checksum is computed by AuditLogService at insert time
  * over a canonical serialization of every field on this DTO except the
  * checksum itself, so a single-row tamper without the key is detectable.
+ *
+ * Observability fields ($latencyMs, $costUsdMicros, $stepsJson, $errorCode,
+ * $errorDetail) come from the sidecar's ResponseMeta and are nullable so
+ * pre-observability rows (and rows where the sidecar errored before
+ * producing meta) still write cleanly.
  */
 final readonly class LlmCallLogEntry
 {
@@ -37,6 +42,11 @@ final readonly class LlmCallLogEntry
         public ?array $verificationFailures,
         public LlmCallVerificationStatus $verificationStatus,
         public ?string $conversationId = null,
+        public ?int $latencyMs = null,
+        public ?int $costUsdMicros = null,
+        public ?string $stepsJson = null,
+        public ?string $errorCode = null,
+        public ?string $errorDetail = null,
     ) {
     }
 }

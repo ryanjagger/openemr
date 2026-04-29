@@ -22,6 +22,10 @@ use Throwable;
  * table. Hashes only — no raw prompts or responses (ARCH §8.2). The
  * integrity_checksum HMAC (ARCH §8.3) detects single-row tampering by
  * anyone without the audit secret.
+ *
+ * Observability fields ($latencyMs, $costUsdMicros, $stepsJson, $errorCode,
+ * $errorDetail) are folded into the canonical HMAC row so the trace and
+ * timing fields are tamper-evident along with the rest of the entry.
  */
 final class AuditLogService
 {
@@ -63,11 +67,16 @@ final class AuditLogService
             'model_id' => $entry->modelId,
             'prompt_tokens' => $entry->promptTokens,
             'completion_tokens' => $entry->completionTokens,
+            'latency_ms' => $entry->latencyMs,
+            'cost_usd_micros' => $entry->costUsdMicros,
             'request_hash' => $entry->requestHash,
             'response_hash' => $entry->responseHash,
             'tool_calls' => null,
+            'steps_json' => $entry->stepsJson,
             'verification_status' => $entry->verificationStatus->value,
             'verification_failures' => $entry->verificationFailures,
+            'error_code' => $entry->errorCode,
+            'error_detail' => $entry->errorDetail,
             'prev_log_hash' => null,
             'created_at' => $createdAt,
         ];
@@ -78,10 +87,11 @@ final class AuditLogService
             QueryUtils::sqlStatementThrowException(
                 'INSERT INTO `llm_call_log` ('
                 . '`request_id`, `conversation_id`, `user_id`, `patient_id`, `action_type`, `model_id`, '
-                . '`prompt_tokens`, `completion_tokens`, `request_hash`, `response_hash`, '
-                . '`tool_calls`, `verification_status`, `verification_failures`, '
+                . '`prompt_tokens`, `completion_tokens`, `latency_ms`, `cost_usd_micros`, '
+                . '`request_hash`, `response_hash`, `tool_calls`, `steps_json`, '
+                . '`verification_status`, `verification_failures`, `error_code`, `error_detail`, '
                 . '`integrity_checksum`, `prev_log_hash`, `created_at`'
-                . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     $row['request_id'],
                     $row['conversation_id'],
@@ -91,13 +101,18 @@ final class AuditLogService
                     $row['model_id'],
                     $row['prompt_tokens'],
                     $row['completion_tokens'],
+                    $row['latency_ms'],
+                    $row['cost_usd_micros'],
                     $row['request_hash'],
                     $row['response_hash'],
                     $row['tool_calls'],
+                    $row['steps_json'],
                     $row['verification_status'],
                     $entry->verificationFailures === null
                         ? null
                         : json_encode($entry->verificationFailures, JSON_THROW_ON_ERROR),
+                    $row['error_code'],
+                    $row['error_detail'],
                     $checksum,
                     $row['prev_log_hash'],
                     $row['created_at'],

@@ -4,12 +4,18 @@ Single node rather than a LangGraph sub-loop: tool-calling is tightly
 coupled to the model call, max iterations are small, and a flat node keeps
 the chat graph linear (``ensure_context → llm_turn → parse_envelope →
 verify_chat``).
+
+Trace events emitted (one per loop iteration):
+
+* ``llm_turn.iteration`` — one per LLM call, with token counts.
+* ``tool_call`` — one per tool invocation, with tool name + status.
+
+The outer ``llm_turn`` step records the iteration count and total tokens.
 """
 
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import Awaitable, Callable
 from datetime import date
 
@@ -20,11 +26,12 @@ from oe_ai_agent.llm.prompts_chat import (
     chat_response_format,
     chat_tools_schema,
 )
+from oe_ai_agent.observability import current_trace, get_logger, step
 from oe_ai_agent.schemas.brief import BriefItemType
 from oe_ai_agent.schemas.tool_results import ToolError, TypedRow
 from oe_ai_agent.tools import FhirClient, FhirError, get_lab_trend
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 LlmTurnNode = Callable[[ChatState], Awaitable[dict[str, object]]]
 
@@ -40,52 +47,82 @@ def make_llm_turn_node(
     types = allowed_types if allowed_types is not None else frozenset(BriefItemType)
 
     async def llm_turn_node(state: ChatState) -> dict[str, object]:
-        messages = build_chat_messages(
-            patient_uuid=state.patient_uuid,
-            cached_context=state.cached_context,
-            history=state.history,
-            allowed_types=types,
-        )
-        new_rows: list[TypedRow] = []
-        new_errors: list[ToolError] = []
+        async with step("llm_turn", model=llm.model_id) as outer:
+            messages = build_chat_messages(
+                patient_uuid=state.patient_uuid,
+                cached_context=state.cached_context,
+                history=state.history,
+                allowed_types=types,
+            )
+            new_rows: list[TypedRow] = []
+            new_errors: list[ToolError] = []
+            iterations = 0
+            tool_call_count = 0
 
-        envelope: str | None = None
-        async with FhirClient(
-            base_url=state.fhir_base_url,
-            bearer_token=state.bearer_token.get_secret_value(),
-            request_id=state.request_id,
-        ) as client:
-            for _ in range(max_iterations):
-                result = await llm.chat_with_tools(
-                    messages,
-                    tools=chat_tools_schema(),
-                    response_format=chat_response_format(types),
-                )
-                if not result.tool_calls:
-                    envelope = result.content
-                    break
-                messages.append(_assistant_message_with_tool_calls(result))
-                for call in result.tool_calls:
-                    rows, error, payload = await _execute_tool_call(
-                        call, client, state.patient_uuid
+            envelope: str | None = None
+            async with FhirClient(
+                base_url=state.fhir_base_url,
+                bearer_token=state.bearer_token.get_secret_value(),
+                request_id=state.request_id,
+            ) as client:
+                for _ in range(max_iterations):
+                    iterations += 1
+                    async with step(
+                        "llm_turn.iteration", iteration=iterations
+                    ) as iter_record:
+                        result = await llm.chat_with_tools(
+                            messages,
+                            tools=chat_tools_schema(),
+                            response_format=chat_response_format(types),
+                        )
+                        iter_record.attrs.update(
+                            {
+                                "prompt_tokens": result.usage.prompt_tokens,
+                                "completion_tokens": result.usage.completion_tokens,
+                                "latency_ms": result.usage.latency_ms,
+                                "tool_call_count": len(result.tool_calls),
+                            }
+                        )
+                        collector = current_trace()
+                        if collector is not None:
+                            collector.add_usage(result.usage)
+                    if not result.tool_calls:
+                        envelope = result.content
+                        break
+                    messages.append(_assistant_message_with_tool_calls(result))
+                    for call in result.tool_calls:
+                        tool_call_count += 1
+                        async with step(
+                            "tool_call", tool=call.name, args=_sanitize_args(call.arguments)
+                        ) as tool_record:
+                            rows, error, payload = await _execute_tool_call(
+                                call, client, state.patient_uuid
+                            )
+                            if error is not None:
+                                new_errors.append(error)
+                                tool_record.status = "error"
+                                tool_record.error = error.message[:400]
+                                tool_record.attrs["status_code"] = error.status_code or 0
+                            else:
+                                tool_record.attrs["row_count"] = len(rows)
+                            new_rows.extend(rows)
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": call.tool_call_id,
+                                    "name": call.name,
+                                    "content": json.dumps(payload),
+                                }
+                            )
+                else:
+                    logger.warning(
+                        "chat tool loop hit max_iterations without final envelope",
+                        max_iterations=max_iterations,
                     )
-                    if error is not None:
-                        new_errors.append(error)
-                    new_rows.extend(rows)
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": call.tool_call_id,
-                            "name": call.name,
-                            "content": json.dumps(payload),
-                        }
-                    )
-            else:
-                logger.warning(
-                    "chat tool loop hit max_iterations=%d without final envelope",
-                    max_iterations,
-                    extra={"request_id": state.request_id},
-                )
+
+            outer.attrs.update(
+                {"iterations": iterations, "tool_calls": tool_call_count}
+            )
 
         merged_context = _merge_rows(state.cached_context, new_rows)
         return {
@@ -115,6 +152,18 @@ def _assistant_message_with_tool_calls(
             for call in result.tool_calls
         ],
     }
+
+
+_TOOL_ARGS_MAX = 200
+
+
+def _sanitize_args(args: dict[str, object]) -> str:
+    """Compact JSON of args, truncated. Avoids dumping large blobs to logs."""
+    try:
+        text = json.dumps(args, separators=(",", ":"), default=str)
+    except (TypeError, ValueError):
+        return "<unserializable>"
+    return text if len(text) <= _TOOL_ARGS_MAX else text[:_TOOL_ARGS_MAX] + "…"
 
 
 async def _execute_tool_call(
