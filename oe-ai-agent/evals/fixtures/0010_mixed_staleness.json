@@ -1,0 +1,76 @@
+{
+  "label": "Two fresh meds, two stale meds — fresh verified, stale dropped by tier1_staleness",
+  "expectations": {
+    "min_verified_items": 2,
+    "expected_types_present": ["med_current"],
+    "expected_citations": ["med-fresh-lisinopril", "med-fresh-atorvastatin"],
+    "forbidden_citations": ["med-stale-warfarin", "med-stale-aspirin"],
+    "must_contain": ["lisinopril", "atorvastatin"],
+    "must_not_contain": ["warfarin", "aspirin", "i recommend"],
+    "expected_drop_rules": {"tier1_staleness": 2}
+  },
+  "fhir": {
+    "Patient": {
+      "resourceType": "Patient",
+      "id": "eval-patient-fixture",
+      "name": [{ "text": "Vincent Holloway" }],
+      "gender": "male",
+      "birthDate": "1962-12-03",
+      "meta": { "lastUpdated": "{{TODAY-7D}}T00:00:00+00:00" }
+    },
+    "Condition": { "resourceType": "Bundle", "entry": [] },
+    "MedicationRequest": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-fresh-lisinopril",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "active",
+            "medicationCodeableConcept": { "text": "Lisinopril 10 mg oral tablet" },
+            "authoredOn": "{{TODAY-30D}}",
+            "meta": { "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00" }
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-fresh-atorvastatin",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "active",
+            "medicationCodeableConcept": { "text": "Atorvastatin 20 mg oral tablet" },
+            "authoredOn": "{{TODAY-60D}}",
+            "meta": { "lastUpdated": "{{TODAY-60D}}T00:00:00+00:00" }
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-stale-warfarin",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "active",
+            "medicationCodeableConcept": { "text": "Warfarin 5 mg oral tablet" },
+            "authoredOn": "{{TODAY-500D}}",
+            "meta": { "lastUpdated": "{{TODAY-500D}}T00:00:00+00:00" }
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-stale-aspirin",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "active",
+            "medicationCodeableConcept": { "text": "Aspirin 81 mg oral tablet" },
+            "authoredOn": "{{TODAY-700D}}",
+            "meta": { "lastUpdated": "{{TODAY-700D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "AllergyIntolerance": { "resourceType": "Bundle", "entry": [] },
+    "Encounter": { "resourceType": "Bundle", "entry": [] },
+    "Observation": { "resourceType": "Bundle", "entry": [] },
+    "DocumentReference": { "resourceType": "Bundle", "entry": [] }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "label": "Pediatric patient (~age 8) with asthma — ensures demographics don't break briefing",
+  "expectations": {
+    "min_verified_items": 1,
+    "expected_citations": ["med-albuterol"],
+    "must_contain": ["albuterol"],
+    "must_not_contain": ["i recommend", "consider stopping", "rule out"]
+  },
+  "fhir": {
+    "Patient": {
+      "resourceType": "Patient",
+      "id": "eval-patient-fixture",
+      "name": [{ "text": "Mia Tran" }],
+      "gender": "female",
+      "birthDate": "2018-05-11",
+      "meta": { "lastUpdated": "{{TODAY-7D}}T00:00:00+00:00" }
+    },
+    "Condition": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Condition",
+            "id": "cond-asthma",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "clinicalStatus": { "coding": [{ "code": "active" }] },
+            "code": { "text": "Mild intermittent asthma" },
+            "meta": { "lastUpdated": "{{TODAY-90D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "MedicationRequest": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-albuterol",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "active",
+            "medicationCodeableConcept": { "text": "Albuterol 90 mcg inhaler" },
+            "authoredOn": "{{TODAY-45D}}",
+            "meta": { "lastUpdated": "{{TODAY-45D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "AllergyIntolerance": { "resourceType": "Bundle", "entry": [] },
+    "Encounter": { "resourceType": "Bundle", "entry": [] },
+    "Observation": { "resourceType": "Bundle", "entry": [] },
+    "DocumentReference": { "resourceType": "Bundle", "entry": [] }
+  }
+}

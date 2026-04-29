@@ -95,9 +95,9 @@ This document defines the architecture for an AI agent integrated into OpenEMR. 
 
 ### Key decisions
 
-**Topology — two halves.** A new OpenEMR custom module (`oe-module-ai-assistant`, PHP) is paired with a separate Python sidecar service (`oe-ai-agent`, FastAPI). The PHP module owns the UI panel, REST endpoint, `pid`-ownership pre-check, and per-call audit log. The Python sidecar runs the agent (LangGraph), calls the LLM, runs the verifier, and reads patient data from OpenEMR's FHIR API over OAuth2. The two halves communicate over internal HTTP with the user's bearer token passed through, so the agent inherits the user's FHIR scope automatically — closing the audit's HIGH `pid` ACL finding (`interface/globals.php:155-157`) by construction for any agent-initiated read.
+**Topology — two halves.** A new OpenEMR custom module (`oe-module-ai-agent`, PHP) is paired with a separate Python sidecar service (`oe-ai-agent`, FastAPI). The PHP module owns the UI panel, REST endpoint, `pid`-ownership pre-check, and per-call audit log. The Python sidecar runs the agent (LangGraph), calls the LLM, runs the verifier, and reads patient data from OpenEMR's FHIR API over OAuth2. The two halves communicate over internal HTTP with the user's bearer token passed through, so the agent inherits the user's FHIR scope automatically — closing the audit's HIGH `pid` ACL finding (`interface/globals.php:155-157`) by construction for any agent-initiated read.
 
-**Custom module, not a fork.** All integration is via `interface/modules/custom_modules/oe-module-ai-assistant/`, Symfony EventDispatcher subscriptions, and registered REST routes. Core OpenEMR is not modified. Per `docs/openemr/module-architecture.md`, this is the supported extension surface.
+**Custom module, not a fork.** All integration is via `interface/modules/custom_modules/oe-module-ai-agent/`, Symfony EventDispatcher subscriptions, and registered REST routes. Core OpenEMR is not modified. Per `docs/openemr/module-architecture.md`, this is the supported extension surface.
 
 **Read-only on day one; writes designed-for, not built.** The tool layer, agent state, and audit log all support write semantics, but no write tools are exposed in MVP. Adding writes is additive — new tools, a new approval-gate node in the LangGraph, no schema or topology changes.
 
@@ -128,7 +128,7 @@ A working physician brief that is **verifiable** (every claim traceable to a sou
 ┌─────────────────────────────────────────────────────────────────┐
 │  OpenEMR (PHP, existing process)                                │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │ Custom module: oe-module-ai-assistant                   │    │
+│  │ Custom module: oe-module-ai-agent                       │    │
 │  │  • BriefController          (REST handler)              │    │
 │  │  • PatientAccessValidator   (closes audit pid HIGH bug) │    │
 │  │  • BriefService             (orchestration; sync→async  │    │
@@ -177,7 +177,7 @@ A working physician brief that is **verifiable** (every claim traceable to a sou
 
 **Flow:**
 1. Doc opens chart. Patient summary page renders.
-2. Twig panel injected via `Events/Patient/Summary/PatientSummaryPageEvent` shows a "Generate brief" button.
+2. Twig panel injected via `OpenEMR\Events\PatientDemographics\RenderEvent::EVENT_SECTION_LIST_RENDER_BEFORE` (the proven pattern used by `oe-module-weno` and `oe-module-claimrev-connect`) shows a "Generate brief" button.
 3. Click → `POST /apis/default/api/ai/brief/{pid}` (OpenEMR session-authenticated).
 4. PHP `PatientAccessValidator` runs `AclMain::aclCheck(...)` and verifies user has access to that `pid` per their phpGACL roles and `see_auth` setting (`docs/openemr/auth.md` §4). On fail: 403, no agent call, audit row marked `denied`.
 5. PHP mints a short-lived OAuth2 bearer token on the user's behalf with narrow read scopes (`patient/Patient.read patient/Condition.read patient/MedicationRequest.read patient/AllergyIntolerance.read patient/Encounter.read patient/Observation.read patient/DocumentReference.read`) and posts the request to the sidecar.
@@ -189,14 +189,14 @@ A working physician brief that is **verifiable** (every claim traceable to a sou
 
 ## 3. Component Architecture
 
-### 3.1 OpenEMR custom module (`oe-module-ai-assistant`)
+### 3.1 OpenEMR custom module (`oe-module-ai-agent`)
 
-**Location:** `interface/modules/custom_modules/oe-module-ai-assistant/`
+**Location:** `interface/modules/custom_modules/oe-module-ai-agent/`
 
 ```
-oe-module-ai-assistant/
+oe-module-ai-agent/
 ├── openemr.bootstrap.php        # registers event listeners with kernel dispatcher
-├── composer.json                # PSR-4: OpenEMR\Modules\AiAssistant\
+├── composer.json                # PSR-4: OpenEMR\Modules\AiAgent\
 ├── info.txt                     # module name + version for `modules` table
 ├── version.php
 ├── Module.php                   # optional Laminas MVC config (REST routes)
@@ -226,8 +226,8 @@ oe-module-ai-assistant/
 ```
 
 **Event subscriptions (MVP):**
-- `Events/Patient/Summary/PatientSummaryPageEvent` → render Twig panel
-- `Events/RestApiExtend/RestApiResourceServiceEvent` → register `/api/ai/brief/{pid}` route
+- `OpenEMR\Events\PatientDemographics\RenderEvent::EVENT_SECTION_LIST_RENDER_BEFORE` → render panel above the demographics card list (matches `oe-module-weno` / `oe-module-claimrev-connect` pattern)
+- `OpenEMR\Events\RestApiExtend\RestApiCreateEvent::EVENT_HANDLE` → register `/api/ai/brief/{pid}` route via `$event->addToRouteMap(...)`
 
 **Conventions per `CLAUDE.md`:**
 - `declare(strict_types=1)` on every file
@@ -612,7 +612,7 @@ When write capability arrives (post-MVP):
 2. **New LangGraph nodes.** Insert `propose_change` (LLM emits structured proposed change with citations) → `human_approval` (uses LangGraph `interrupt_before` — graph pauses, browser polls or receives push, user confirms/rejects, graph resumes) → `apply_change` (executes the FHIR write).
 3. **New BriefItem subtype.** `ProposedChange { target_resource: TypedRow, current_value: ..., proposed_value: ..., rationale: str, citations: [...] }`. Verifier enforces that `target_resource.patient_id == pid` and that `rationale` cites at least one source row.
 4. **Audit log gains an `action_type` value.** `brief.write_proposed`, `brief.write_applied`, `brief.write_rejected`. Same schema, no migration.
-5. **Deployment-time gate.** Writes are gated behind a per-deployment feature flag and a phpGACL permission (`ai_assistant.write`). MVP module ships with the flag off and the permission unassigned.
+5. **Deployment-time gate.** Writes are gated behind a per-deployment feature flag and a phpGACL permission (`ai_agent.write`). MVP module ships with the flag off and the permission unassigned.
 
 No topology changes. No schema changes to `llm_call_log`. The investment in LangGraph specifically pays off here — `interrupt_before` is a first-class primitive for human-in-the-loop approval.
 
@@ -679,7 +679,7 @@ networks:
 
 ### 13.2 Module installation
 
-1. Place module at `interface/modules/custom_modules/oe-module-ai-assistant/`.
+1. Place module at `interface/modules/custom_modules/oe-module-ai-agent/`.
 2. Admin → Modules → Manage Modules → install + activate (sets `mod_active=1` in `modules` table).
 3. Module bootstrap registers event listeners on next request.
 4. `sql/install.sql` creates `llm_call_log`.
@@ -736,7 +736,7 @@ openemr/                                                        # existing repo 
 │   │   ├── auth.md
 │   │   └── module-architecture.md
 │   └── users.md
-├── interface/modules/custom_modules/oe-module-ai-assistant/    # PHP module
+├── interface/modules/custom_modules/oe-module-ai-agent/        # PHP module
 │   ├── openemr.bootstrap.php
 │   ├── composer.json
 │   ├── info.txt

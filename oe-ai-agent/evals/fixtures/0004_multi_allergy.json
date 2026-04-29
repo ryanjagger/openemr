@@ -1,0 +1,63 @@
+{
+  "label": "Three active allergies — exercises allergy item type at scale",
+  "expectations": {
+    "min_verified_items": 3,
+    "expected_types_present": ["allergy"],
+    "expected_citations": ["allergy-pcn", "allergy-sulfa", "allergy-latex"],
+    "must_contain": ["penicillin", "sulfa", "latex"],
+    "must_not_contain": ["i recommend", "consider"]
+  },
+  "fhir": {
+    "Patient": {
+      "resourceType": "Patient",
+      "id": "eval-patient-fixture",
+      "name": [{ "text": "Renee Wallace" }],
+      "gender": "female",
+      "birthDate": "1970-04-22",
+      "meta": { "lastUpdated": "{{TODAY-7D}}T00:00:00+00:00" }
+    },
+    "Condition": { "resourceType": "Bundle", "entry": [] },
+    "MedicationRequest": { "resourceType": "Bundle", "entry": [] },
+    "AllergyIntolerance": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "AllergyIntolerance",
+            "id": "allergy-pcn",
+            "patient": { "reference": "Patient/eval-patient-fixture" },
+            "clinicalStatus": { "coding": [{ "code": "active" }] },
+            "code": { "text": "Penicillin" },
+            "reaction": [{ "manifestation": [{ "text": "Hives" }] }],
+            "meta": { "lastUpdated": "{{TODAY-90D}}T00:00:00+00:00" }
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "AllergyIntolerance",
+            "id": "allergy-sulfa",
+            "patient": { "reference": "Patient/eval-patient-fixture" },
+            "clinicalStatus": { "coding": [{ "code": "active" }] },
+            "code": { "text": "Sulfa drugs" },
+            "reaction": [{ "manifestation": [{ "text": "Rash" }] }],
+            "meta": { "lastUpdated": "{{TODAY-90D}}T00:00:00+00:00" }
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "AllergyIntolerance",
+            "id": "allergy-latex",
+            "patient": { "reference": "Patient/eval-patient-fixture" },
+            "clinicalStatus": { "coding": [{ "code": "active" }] },
+            "code": { "text": "Latex" },
+            "reaction": [{ "manifestation": [{ "text": "Contact dermatitis" }] }],
+            "meta": { "lastUpdated": "{{TODAY-90D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "Encounter": { "resourceType": "Bundle", "entry": [] },
+    "Observation": { "resourceType": "Bundle", "entry": [] },
+    "DocumentReference": { "resourceType": "Bundle", "entry": [] }
+  }
+}

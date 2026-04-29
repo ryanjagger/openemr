@@ -1,0 +1,69 @@
+{
+  "label": "All MedicationRequest activity >365 days old — Tier 1 staleness should fire",
+  "expectations": {
+    "expected_types_present": ["allergy"],
+    "expected_types_absent": ["med_current"],
+    "expected_citations": ["allergy-sulfa"],
+    "forbidden_citations": ["med-stale-warfarin", "med-stale-aspirin"],
+    "must_contain": ["sulfa"],
+    "must_not_contain": ["warfarin", "aspirin"],
+    "expected_drop_rules": {"tier1_staleness": 2}
+  },
+  "fhir": {
+    "Patient": {
+      "resourceType": "Patient",
+      "id": "eval-patient-fixture",
+      "name": [{ "text": "Hilda Ortiz" }],
+      "gender": "female",
+      "birthDate": "1948-11-30",
+      "meta": { "lastUpdated": "{{TODAY-7D}}T00:00:00+00:00" }
+    },
+    "Condition": { "resourceType": "Bundle", "entry": [] },
+    "MedicationRequest": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-stale-warfarin",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "active",
+            "medicationCodeableConcept": { "text": "Warfarin 5 mg oral tablet" },
+            "authoredOn": "{{TODAY-800D}}",
+            "meta": { "lastUpdated": "{{TODAY-800D}}T00:00:00+00:00" }
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-stale-aspirin",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "active",
+            "medicationCodeableConcept": { "text": "Aspirin 81 mg oral tablet" },
+            "authoredOn": "{{TODAY-900D}}",
+            "meta": { "lastUpdated": "{{TODAY-900D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "AllergyIntolerance": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "AllergyIntolerance",
+            "id": "allergy-sulfa",
+            "patient": { "reference": "Patient/eval-patient-fixture" },
+            "clinicalStatus": { "coding": [{ "code": "active" }] },
+            "code": { "text": "Sulfa drugs" },
+            "reaction": [{ "manifestation": [{ "text": "Rash" }] }],
+            "meta": { "lastUpdated": "{{TODAY-800D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    },
+    "Encounter": { "resourceType": "Bundle", "entry": [] },
+    "Observation": { "resourceType": "Bundle", "entry": [] },
+    "DocumentReference": { "resourceType": "Bundle", "entry": [] }
+  }
+}
