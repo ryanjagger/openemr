@@ -26,10 +26,55 @@
         button.disabled = true;
     }
 
-    function setError(message) {
-        content.classList.remove('text-muted');
-        content.classList.add('text-danger');
-        content.textContent = message;
+    // Maps controller error codes to human-readable copy. Codes here must
+    // match the strings BriefController.finalize() puts in the JSON body.
+    var ERROR_COPY = {
+        forbidden: 'You don\'t have access to this patient\'s chart.',
+        no_authenticated_user: 'Your session has expired. Please log in again and try again.',
+        patient_not_found: 'Patient record not found.',
+        token_mint_failed: 'Could not authorize the AI service for this chart.',
+        sidecar_unreachable: 'The AI service is unreachable.',
+        http_error: 'The AI service returned an unexpected response.',
+        network: 'Could not reach the AI service.'
+    };
+
+    var RETRYABLE = {
+        token_mint_failed: true,
+        sidecar_unreachable: true,
+        http_error: true,
+        network: true
+    };
+
+    function setError(code, fallbackDetail, requestId) {
+        content.classList.remove('text-muted', 'text-danger');
+        content.innerHTML = '';
+
+        var alert = document.createElement('div');
+        alert.className = 'alert alert-danger mb-0';
+
+        var msg = document.createElement('div');
+        msg.textContent = ERROR_COPY[code] || fallbackDetail || 'Something went wrong.';
+        alert.appendChild(msg);
+
+        if (requestId) {
+            // Surfacing request_id lets a clinician quote it to support; the
+            // audit log row for this attempt has the same id.
+            var rid = document.createElement('div');
+            rid.className = 'small text-muted mt-1';
+            rid.textContent = 'Request ID: ' + requestId;
+            alert.appendChild(rid);
+        }
+
+        if (RETRYABLE[code]) {
+            var retryBtn = document.createElement('button');
+            retryBtn.type = 'button';
+            retryBtn.className = 'btn btn-sm btn-outline-danger mt-2';
+            retryBtn.textContent = 'Retry';
+            retryBtn.addEventListener('click', generate);
+            alert.appendChild(retryBtn);
+        }
+
+        content.appendChild(alert);
         button.disabled = false;
     }
 
@@ -115,7 +160,7 @@
         button.disabled = false;
     }
 
-    button.addEventListener('click', function () {
+    function generate() {
         setLoading();
         fetch(endpoint, {
             method: 'POST',
@@ -127,20 +172,28 @@
             },
             body: '{}'
         }).then(function (response) {
-            if (!response.ok) {
-                throw new Error('HTTP ' + response.status);
-            }
-            return response.json();
-        }).then(function (data) {
-            if (data && data.error) {
-                setError('Brief failed: ' + data.error);
+            // Parse JSON regardless of status — the controller returns
+            // {error, request_id} on 4xx/5xx too.
+            return response.json().then(function (data) {
+                return { ok: response.ok, status: response.status, data: data };
+            }, function () {
+                return { ok: response.ok, status: response.status, data: null };
+            });
+        }).then(function (result) {
+            var data = result.data;
+            if (!result.ok || (data && data.error)) {
+                var code = (data && data.error) || 'http_error';
+                var requestId = data && data.request_id;
+                setError(code, 'HTTP ' + result.status, requestId);
                 return;
             }
             renderItems(data);
         }).catch(function (err) {
-            setError('Brief failed: ' + (err && err.message ? err.message : 'unknown error'));
+            setError('network', err && err.message, null);
         });
-    });
+    }
+
+    button.addEventListener('click', generate);
 
     setIdle();
 })();

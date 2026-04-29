@@ -73,7 +73,7 @@ Goal: real LLM produces structured output, verifier gates it.
 - **T4.3 — Integrity HMAC.** `HMAC-SHA256(secret, canonical_serialization(row))` per ARCH §8.3. `prev_log_hash` left NULL (hash chain post-MVP).
 - **T4.4 — `request_id` propagation.** PHP generates UUID, passes to sidecar, sidecar attaches to FHIR call headers so `api_log` rows can be joined to `llm_call_log` per ARCH §8.4.
 - **T4.5 — Verbatim excerpt UI.** Hover/expand reveals `verbatim_excerpts[]` next to each rendered item per ARCH §6.3 mitigation. _Done — `<details>` disclosure under each item; collapsed by default, monospaced quote block when open._
-- **T4.6 — Error states.** Token mint failure, sidecar timeout, sidecar 5xx — all render a degraded panel with retry, all produce a `denied` or `failed` audit row.
+- **T4.6 — Error states.** Token mint failure, sidecar timeout, sidecar 5xx — all render a degraded panel with retry, all produce a `denied` or `failed` audit row. _Done — controller-side audit on every exit path landed in 4a; panel maps each error code to human copy, surfaces the request_id, and offers Retry on the recoverable ones (token_mint_failed, sidecar_unreachable, http_error, network)._
 
 ---
 
