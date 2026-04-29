@@ -5,7 +5,6 @@
     "dockerfilePath": "railway/Dockerfile"
   },
   "deploy": {
-    "startCommand": "/entrypoint.sh",
     "healthcheckPath": "/meta/health/readyz",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
