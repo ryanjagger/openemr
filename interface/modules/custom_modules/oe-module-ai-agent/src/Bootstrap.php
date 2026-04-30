@@ -17,14 +17,17 @@ use OpenEMR\Common\Http\HttpRestRequest;
 use OpenEMR\Common\Session\SessionWrapperFactory;
 use OpenEMR\Events\PatientDemographics\RenderEvent as DemographicsRenderEvent;
 use OpenEMR\Events\RestApiExtend\RestApiCreateEvent;
+use OpenEMR\Menu\MenuEvent;
 use OpenEMR\Modules\AiAgent\Controller\BriefController;
 use OpenEMR\Modules\AiAgent\Controller\ChatController;
+use stdClass;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 
 final class Bootstrap
 {
     private const TEMPLATE_DIR = __DIR__ . '/../templates';
     private const PUBLIC_PATH = '/interface/modules/custom_modules/oe-module-ai-agent/public';
+    private const ADMIN_RECENT_PATH = '/interface/modules/custom_modules/oe-module-ai-agent/admin/recent.php';
 
     public function __construct(
         private readonly EventDispatcherInterface $eventDispatcher,
@@ -40,6 +43,10 @@ final class Bootstrap
         $this->eventDispatcher->addListener(
             DemographicsRenderEvent::EVENT_SECTION_LIST_RENDER_BEFORE,
             $this->renderPanels(...),
+        );
+        $this->eventDispatcher->addListener(
+            MenuEvent::MENU_UPDATE,
+            $this->addAdminMenuItem(...),
         );
     }
 
@@ -57,6 +64,36 @@ final class Bootstrap
                 return ChatController::default()->turn($pid, $request);
             },
         );
+
+        return $event;
+    }
+
+    public function addAdminMenuItem(MenuEvent $event): MenuEvent
+    {
+        $menu = $event->getMenu();
+
+        foreach ($menu as $menuItem) {
+            $isAdminMenu = ($menuItem->menu_id ?? null) === 'admimg'
+                || ($menuItem->label ?? '') === 'Admin';
+            if (! $isAdminMenu) {
+                continue;
+            }
+
+            $item = new stdClass();
+            $item->requirement = 0;
+            $item->target = 'adm';
+            $item->menu_id = 'aiagt0';
+            $item->label = xlt('AI Observability');
+            $item->url = self::ADMIN_RECENT_PATH;
+            $item->children = [];
+            $item->acl_req = ['admin', 'super'];
+            $item->global_req = [];
+
+            $menuItem->children[] = $item;
+            break;
+        }
+
+        $event->setMenu($menu);
 
         return $event;
     }
