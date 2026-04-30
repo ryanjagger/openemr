@@ -393,3 +393,57 @@ curl -s -X POST https://backboard.railway.com/graphql/v2 \
 ```
 
 Don't trust bookmarks across deploy churn.
+
+## 15. Repo-root `railway.json` applies to every service in a monorepo
+
+When more than one Railway service is connected to the same GitHub repo
+(here: `openemr` and `oe-ai-agent` both pointed at `railway/main`), the
+repo-root `railway.json` is **auto-loaded for every service**, even when
+each service has its own Root Directory. Railway's docs spell this out:
+
+> "the Railway Config File does not follow the root directory path
+> automatically, so you must specify the absolute path for files like
+> `railway.json` or `railway.toml`."
+> — Railway monorepo deploy docs
+
+Symptom: the sidecar service built using `Dockerfile.railway` (which is
+openemr's), with `oe-ai-agent/` as the build context, and failed on:
+
+```
+failed to compute cache key: failed to calculate checksum of ref ...
+"/railway-entrypoint.sh": not found
+```
+
+…because `railway-entrypoint.sh` lives at the repo root and isn't in the
+sidecar's build context. Setting Dockerfile Path to empty/auto-detect on
+the sidecar service didn't help — `railway.json`'s `dockerfilePath` wins
+over auto-detect.
+
+**Quick fix** (what we did): on the sidecar service, add a service variable
+
+```
+RAILWAY_DOCKERFILE_PATH=Dockerfile
+```
+
+This is Railway's documented per-service override and takes precedence
+over `railway.json`. The path resolves relative to the build context (i.e.
+`oe-ai-agent/Dockerfile`), so just `Dockerfile` is correct.
+
+**Cleaner long-term options** if a third service joins the repo:
+
+- Rename root `railway.json` → `openemr.railway.json` and point openemr's
+  Config Path setting at it explicitly. Other services then auto-detect
+  and get nothing applied.
+- Or: move openemr's settings into the Railway dashboard and delete
+  `railway.json` entirely (drift risk: settings stop being in git).
+
+How to verify the override is live before redeploying:
+
+```bash
+railway ssh --service oe-ai-agent -- printenv RAILWAY_DOCKERFILE_PATH
+# Should print: Dockerfile
+```
+
+Then redeploy the failed sidecar build (or push a no-op change under
+`oe-ai-agent/`) and confirm the build log loads `oe-ai-agent/Dockerfile`,
+not `Dockerfile.railway`.
