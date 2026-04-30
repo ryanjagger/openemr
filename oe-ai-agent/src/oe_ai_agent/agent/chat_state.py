@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from oe_ai_agent.schemas.brief import BriefItem, VerificationFailure
-from oe_ai_agent.schemas.chat import ChatMessage
+from oe_ai_agent.schemas.brief import VerificationFailure
+from oe_ai_agent.schemas.chat import ChatFact, ChatMessage
 from oe_ai_agent.schemas.tool_results import ToolError, TypedRow
 
 
@@ -24,8 +24,8 @@ class ChatState(BaseModel):
 
     raw_envelope: str | None = None
     parsed_narrative: str = ""
-    parsed_facts: list[BriefItem] = Field(default_factory=list)
+    parsed_facts: list[ChatFact] = Field(default_factory=list)
     parse_error: str | None = None
 
-    verified_facts: list[BriefItem] = Field(default_factory=list)
+    verified_facts: list[ChatFact] = Field(default_factory=list)
     verification_failures: list[VerificationFailure] = Field(default_factory=list)

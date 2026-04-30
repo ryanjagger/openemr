@@ -12,10 +12,9 @@ from __future__ import annotations
 from typing import Any
 
 from oe_ai_agent.llm.prompts import _detail_for_row, _note_for_row
-from oe_ai_agent.schemas.brief import BriefItemType
-from oe_ai_agent.schemas.chat import ChatMessage
+from oe_ai_agent.schemas.chat import ChatFactType, ChatMessage
 from oe_ai_agent.schemas.tool_results import TypedRow
-from oe_ai_agent.verifier.constraints import ALLOWED_TABLES_FOR_TYPE
+from oe_ai_agent.verifier.constraints import CHAT_ALLOWED_TABLES_FOR_TYPE
 
 
 def build_chat_messages(
@@ -23,7 +22,7 @@ def build_chat_messages(
     patient_uuid: str,
     cached_context: list[TypedRow],
     history: list[ChatMessage],
-    allowed_types: frozenset[BriefItemType],
+    allowed_types: frozenset[ChatFactType],
 ) -> list[dict[str, Any]]:
     """Assemble the message list for a chat turn.
 
@@ -45,10 +44,10 @@ def build_chat_messages(
 
 
 def chat_response_format(
-    allowed_types: frozenset[BriefItemType],
+    allowed_types: frozenset[ChatFactType],
 ) -> dict[str, Any]:
     """Pinned JSON schema for the chat envelope: narrative + facts."""
-    ordered = [t.value for t in BriefItemType if t in allowed_types]
+    ordered = [t.value for t in ChatFactType if t in allowed_types]
     return {
         "type": "json_schema",
         "json_schema": {
@@ -70,53 +69,10 @@ def chat_response_format(
     }
 
 
-def chat_tools_schema() -> list[dict[str, Any]]:
-    """Function-calling tool catalog exposed to the chat agent.
-
-    Adding a tool here means: define it in ``tools/``, register it in
-    ``agent/nodes/tool_loop.py::_TOOL_HANDLERS``, and add an entry below.
-    Today: one drill-down tool. The chatbot's pre-fetch covers most asks.
-    """
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": "get_lab_trend",
-                "description": (
-                    "Fetch the patient's historical Observation values for a "
-                    "single lab, identified by LOINC code (e.g. '4548-4') or "
-                    "free text (e.g. 'hemoglobin a1c'). Use only when the "
-                    "cached chart context does not already carry enough "
-                    "history to answer the user's question."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "code_or_text": {
-                            "type": "string",
-                            "description": "LOINC code or free-text lab name.",
-                        },
-                        "since": {
-                            "type": "string",
-                            "description": (
-                                "Optional ISO date (YYYY-MM-DD); only "
-                                "observations on or after this date are "
-                                "returned."
-                            ),
-                        },
-                    },
-                    "required": ["code_or_text"],
-                    "additionalProperties": False,
-                },
-            },
-        },
-    ]
-
-
-def _chat_system_prompt(allowed_types: frozenset[BriefItemType]) -> str:
-    ordered = [t for t in BriefItemType if t in allowed_types]
+def _chat_system_prompt(allowed_types: frozenset[ChatFactType]) -> str:
+    ordered = [t for t in ChatFactType if t in allowed_types]
     type_table_lines = "\n".join(
-        f"  - {t.value}: {sorted(ALLOWED_TABLES_FOR_TYPE[t])}" for t in ordered
+        f"  - {t.value}: {sorted(CHAT_ALLOWED_TABLES_FOR_TYPE[t])}" for t in ordered
     )
     type_enum = ", ".join(t.value for t in ordered)
     return (
@@ -152,10 +108,19 @@ def _chat_system_prompt(allowed_types: frozenset[BriefItemType]) -> str:
         "   references it via [^N].\n"
         "\n"
         "tool use:\n"
-        "- The first user message contains the cached chart context.\n"
+        "- The first user message contains cached chart context from earlier "
+        "  turns, if any. It may be empty at the start of a conversation.\n"
         "- If the cached context does not have enough history to answer, "
         "  call the appropriate tool. Do not call tools when the answer is "
         "  already in CONTEXT.\n"
+        "- Tool selection guide: immunization/vaccine/vaccination questions "
+        "  require get_immunizations; medication history questions require "
+        "  get_medication_history; lab trend questions require get_lab_trend; "
+        "  broader lab/vital/observation questions require get_observations; "
+        "  order questions require get_orders; procedure questions require "
+        "  get_procedures.\n"
+        "- If the user asks for a list of records from a category absent from "
+        "  CONTEXT, call that category's tool before answering.\n"
         "- After tool results arrive, re-emit the full ChatTurn envelope.\n"
     )
 

@@ -102,22 +102,40 @@ class MockLlmClient:
 
 def _synthesize_from_context(
     messages: list[dict[str, str]],
-    _response_format: dict[str, Any] | None,
+    response_format: dict[str, Any] | None,
 ) -> str:
-    """Build a BriefResponse JSON that cites real rows surfaced in the prompt."""
+    """Build schema-valid JSON that cites real rows surfaced in the prompt."""
     blob = "\n".join(m.get("content", "") for m in messages)
     rows = list(_CONTEXT_LINE_RE.finditer(blob))
     items: list[dict[str, Any]] = []
+    is_chat = (
+        response_format is not None
+        and response_format.get("json_schema", {}).get("name") == "ChatTurn"
+    )
 
     for match in rows:
         rtype = match["rtype"]
         rid = match["rid"]
         note = match["note"] or rtype
-        item = _maybe_item_for_row(rtype, rid, note)
+        item = (
+            _maybe_chat_fact_for_row(rtype, rid, note)
+            if is_chat
+            else _maybe_item_for_row(rtype, rid, note)
+        )
         if item is not None:
             items.append(item)
         if len(items) >= _MAX_SYNTHESIZED_ITEMS:
             break
+
+    if is_chat:
+        if not items:
+            return json.dumps({"narrative": "I do not see that in the chart context.", "facts": []})
+        return json.dumps(
+            {
+                "narrative": "I found chart facts in the verified cards below.",
+                "facts": items,
+            }
+        )
 
     return json.dumps({"items": items, "verification_failures": []})
 
@@ -147,6 +165,46 @@ def _maybe_item_for_row(rtype: str, rid: str, note: str) -> dict[str, Any] | Non
         return {
             "type": "recent_event",
             "text": f"Recent visit: {note}",
+            "verbatim_excerpts": [note],
+            "citations": citation,
+        }
+    return None
+
+
+def _maybe_chat_fact_for_row(rtype: str, rid: str, note: str) -> dict[str, Any] | None:
+    citation = [{"resource_type": rtype, "resource_id": rid}]
+    if rtype == "MedicationRequest":
+        return {
+            "type": "medication",
+            "text": f"Medication: {note}",
+            "verbatim_excerpts": [note],
+            "citations": citation,
+        }
+    if rtype == "AllergyIntolerance":
+        return {
+            "type": "allergy",
+            "text": f"Allergy: {note}",
+            "verbatim_excerpts": [note],
+            "citations": citation,
+        }
+    if rtype == "Observation":
+        return {
+            "type": "observation",
+            "text": f"Observation: {note}",
+            "verbatim_excerpts": [note],
+            "citations": citation,
+        }
+    if rtype == "Encounter":
+        return {
+            "type": "encounter",
+            "text": f"Encounter: {note}",
+            "verbatim_excerpts": [note],
+            "citations": citation,
+        }
+    if rtype == "DocumentReference":
+        return {
+            "type": "note",
+            "text": f"Note: {note}",
             "verbatim_excerpts": [note],
             "citations": citation,
         }

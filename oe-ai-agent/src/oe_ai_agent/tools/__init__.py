@@ -5,7 +5,12 @@ from oe_ai_agent.tools.active_problems import get_active_problems
 from oe_ai_agent.tools.allergies import get_allergies
 from oe_ai_agent.tools.demographics import get_demographics
 from oe_ai_agent.tools.fhir_client import FhirClient, FhirError
+from oe_ai_agent.tools.immunizations import get_immunizations
 from oe_ai_agent.tools.lab_trend import get_lab_trend
+from oe_ai_agent.tools.medication_history import get_medication_history
+from oe_ai_agent.tools.observation_search import get_observations
+from oe_ai_agent.tools.orders import get_orders
+from oe_ai_agent.tools.procedures import get_procedures
 from oe_ai_agent.tools.recent_encounters import get_recent_encounters
 from oe_ai_agent.tools.recent_notes import get_recent_notes
 from oe_ai_agent.tools.recent_observations import get_recent_observations
@@ -17,7 +22,12 @@ __all__ = [
     "get_active_problems",
     "get_allergies",
     "get_demographics",
+    "get_immunizations",
     "get_lab_trend",
+    "get_medication_history",
+    "get_observations",
+    "get_orders",
+    "get_procedures",
     "get_recent_encounters",
     "get_recent_notes",
     "get_recent_observations",

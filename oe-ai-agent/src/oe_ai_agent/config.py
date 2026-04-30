@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass
 
 from oe_ai_agent.schemas.brief import BriefItemType
+from oe_ai_agent.schemas.chat import ChatFactType
 
 # Free-text-derived item types are gated behind AI_AGENT_ENABLE_FREETEXT_TYPES.
 # Tier 1's typed-fact re-extraction can string-match structured fields but
@@ -22,6 +23,7 @@ class Settings:
     internal_auth_secret: str
     llm_provider: str
     llm_model: str
+    llm_max_tokens: int
     anthropic_api_key: str | None
     openemr_fhir_base: str | None
     enable_freetext_types: bool
@@ -31,6 +33,10 @@ class Settings:
         if self.enable_freetext_types:
             return frozenset(BriefItemType)
         return frozenset(BriefItemType) - FREETEXT_ITEM_TYPES
+
+    @property
+    def allowed_chat_fact_types(self) -> frozenset[ChatFactType]:
+        return frozenset(ChatFactType)
 
 
 def load_settings() -> Settings:
@@ -43,6 +49,7 @@ def load_settings() -> Settings:
         internal_auth_secret=secret,
         llm_provider=os.environ.get("LLM_PROVIDER", "mock"),
         llm_model=os.environ.get("LLM_MODEL", "anthropic/claude-sonnet-4-6"),
+        llm_max_tokens=_parse_int(os.environ.get("LLM_MAX_TOKENS"), default=4096),
         anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY"),
         openemr_fhir_base=os.environ.get("OPENEMR_FHIR_BASE"),
         enable_freetext_types=_parse_bool(os.environ.get("AI_AGENT_ENABLE_FREETEXT_TYPES")),
@@ -53,3 +60,13 @@ def _parse_bool(value: str | None) -> bool:
     if value is None:
         return False
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_int(value: str | None, *, default: int) -> int:
+    if value is None or not value.strip():
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
