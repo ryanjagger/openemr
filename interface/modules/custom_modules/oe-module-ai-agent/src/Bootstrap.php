@@ -105,11 +105,8 @@ final class Bootstrap
         $pid = (string) $event->getPid();
         $publicPath = self::PUBLIC_PATH;
 
-        foreach (['patient_summary_panel.php', 'chat_panel.php'] as $template) {
-            $templatePath = self::TEMPLATE_DIR . '/' . $template;
-            if (!is_file($templatePath)) {
-                continue;
-            }
+        $templatePath = self::TEMPLATE_DIR . '/patient_summary_panel.php';
+        if (is_file($templatePath)) {
             include $templatePath;
         }
     }
