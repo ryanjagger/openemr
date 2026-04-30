@@ -29,6 +29,7 @@ from oe_ai_agent.llm.client import (
 from oe_ai_agent.observability.cost import compute_completion_cost
 
 DEFAULT_MODEL = "anthropic/claude-sonnet-4-6"
+DEFAULT_MAX_TOKENS = 4096
 
 
 class LiteLLMClient:
@@ -37,7 +38,7 @@ class LiteLLMClient:
         model: str = DEFAULT_MODEL,
         *,
         api_key: str | None = None,
-        max_tokens: int = 1024,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> None:
         self._model = model
         self._api_key = api_key
@@ -98,9 +99,13 @@ class LiteLLMClient:
         usage = _extract_usage(response, latency_ms)
 
         message = response["choices"][0]["message"]
+        content = _attr_or_key(message, "content")
         return LlmChatResult(
-            content=_extract_text(message.get("content")),
-            tool_calls=_extract_tool_calls(message.get("tool_calls") or []),
+            content=_extract_text(content),
+            tool_calls=[
+                *_extract_tool_calls(_attr_or_key(message, "tool_calls") or []),
+                *_extract_anthropic_content_tool_calls(content),
+            ],
             usage=usage,
         )
 
@@ -121,9 +126,9 @@ def _extract_text(content: object) -> str | None:
         return stripped or None
     if isinstance(content, list):
         text_parts = [
-            part.get("text", "")
+            _attr_or_key(part, "text") or ""
             for part in content
-            if isinstance(part, dict) and part.get("type") == "text"
+            if _attr_or_key(part, "type") == "text"
         ]
         joined = "".join(text_parts).strip()
         return joined or None
@@ -133,13 +138,11 @@ def _extract_text(content: object) -> str | None:
 def _extract_tool_calls(raw_calls: list[Any]) -> list[LlmToolCall]:
     calls: list[LlmToolCall] = []
     for raw in raw_calls:
-        if not isinstance(raw, dict):
-            continue
-        function = raw.get("function") or {}
-        name = function.get("name")
+        function = _attr_or_key(raw, "function") or {}
+        name = _attr_or_key(function, "name")
         if not isinstance(name, str):
             continue
-        arguments_raw = function.get("arguments")
+        arguments_raw = _attr_or_key(function, "arguments")
         arguments: dict[str, Any]
         if isinstance(arguments_raw, str):
             try:
@@ -150,10 +153,42 @@ def _extract_tool_calls(raw_calls: list[Any]) -> list[LlmToolCall]:
             arguments = arguments_raw
         else:
             arguments = {}
-        tool_call_id = raw.get("id") or raw.get("tool_call_id") or ""
+        tool_call_id = _attr_or_key(raw, "id") or _attr_or_key(raw, "tool_call_id") or ""
         if not isinstance(tool_call_id, str):
             tool_call_id = str(tool_call_id)
         calls.append(LlmToolCall(tool_call_id=tool_call_id, name=name, arguments=arguments))
+    return calls
+
+
+def _extract_anthropic_content_tool_calls(content: object) -> list[LlmToolCall]:
+    """Extract Anthropic-native tool_use blocks from LiteLLM message content.
+
+    Some Anthropic responses are normalized into OpenAI-style
+    ``message.tool_calls``. Others keep the native content shape:
+    ``[{"type": "tool_use", "id": "...", "name": "...", "input": {...}}]``.
+    Without this path the graph sees ``tool_calls=[]`` and ``content=None``.
+    """
+    if not isinstance(content, list):
+        return []
+
+    calls: list[LlmToolCall] = []
+    for part in content:
+        if _attr_or_key(part, "type") != "tool_use":
+            continue
+        name = _attr_or_key(part, "name")
+        if not isinstance(name, str):
+            continue
+        raw_arguments = _attr_or_key(part, "input")
+        arguments = raw_arguments if isinstance(raw_arguments, dict) else {}
+        raw_id = _attr_or_key(part, "id") or _attr_or_key(part, "tool_use_id") or ""
+        tool_call_id = raw_id if isinstance(raw_id, str) else str(raw_id)
+        calls.append(
+            LlmToolCall(
+                tool_call_id=tool_call_id,
+                name=name,
+                arguments=arguments,
+            )
+        )
     return calls
 
 

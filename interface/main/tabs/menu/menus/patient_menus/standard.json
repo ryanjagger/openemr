@@ -9,6 +9,20 @@
         "requirement": 0
     },
 	{
+        "label": "Co-pilot",
+        "menu_id": "copilot",
+        "target": "main",
+        "on_click":"top.restoreSession()",
+        "url": "interface/patient_file/summary/copilot.php",
+        "pid":"false",
+        "children": [],
+        "requirement": 0,
+        "acl_req": [
+            "patients",
+            "med"
+        ]
+    },
+	{
         "label": "History",
         "menu_id": "history",
         "target": "main",

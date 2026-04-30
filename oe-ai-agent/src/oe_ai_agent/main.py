@@ -47,7 +47,11 @@ def _llm_client() -> LlmClient:
             raise RuntimeError(
                 "LLM_PROVIDER=anthropic requires ANTHROPIC_API_KEY in the environment.",
             )
-        return LiteLLMClient(model=settings.llm_model, api_key=settings.anthropic_api_key)
+        return LiteLLMClient(
+            model=settings.llm_model,
+            api_key=settings.anthropic_api_key,
+            max_tokens=settings.llm_max_tokens,
+        )
     raise RuntimeError(f"Unknown LLM_PROVIDER: {provider!r}")
 
 
@@ -60,7 +64,7 @@ def _graph() -> object:
 @cache
 def _chat_graph() -> object:
     settings = load_settings()
-    return build_chat_graph(_llm_client(), allowed_types=settings.allowed_item_types)
+    return build_chat_graph(_llm_client(), allowed_types=settings.allowed_chat_fact_types)
 
 
 @app.get("/healthz")

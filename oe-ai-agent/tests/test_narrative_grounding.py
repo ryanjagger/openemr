@@ -33,6 +33,15 @@ def test_pass_when_numbers_appear_in_excerpts() -> None:
     assert failure is None
 
 
+def test_pass_when_numbers_appear_in_verified_fact_text() -> None:
+    facts = [_fact("Most recent A1c was 7.0", [], anchor=1)]
+    failure = check_narrative_grounding(
+        "Most recent A1c was 7 [^1].",
+        facts,
+    )
+    assert failure is None
+
+
 def test_fail_when_narrative_invents_a_number() -> None:
     facts = [_fact("On lisinopril 10 mg", ["Lisinopril 10 mg"])]
     failure = check_narrative_grounding(

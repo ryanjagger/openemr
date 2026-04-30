@@ -13,12 +13,24 @@ Two distinct guarantees:
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 
 from oe_ai_agent.agent.chat_state import ChatState
 from oe_ai_agent.observability import step
-from oe_ai_agent.schemas.brief import BriefItemType
-from oe_ai_agent.verifier import verify_items
+from oe_ai_agent.schemas.brief import VerificationFailure
+from oe_ai_agent.schemas.chat import ChatFact, ChatFactType
+from oe_ai_agent.schemas.tool_results import TypedRow
+from oe_ai_agent.verifier.constraints import (
+    ADVISORY_DENYLIST,
+    CHAT_ALLOWED_TABLES_FOR_TYPE,
+    CHAT_MAX_AGE_DAYS_FOR_TYPE,
+)
 from oe_ai_agent.verifier.narrative import check_narrative_grounding
+from oe_ai_agent.verifier.tier1_structural import (
+    check_citations_exist,
+    check_patient_binding,
+    check_typed_fact_reextraction,
+)
 
 VerifyChatNode = Callable[[ChatState], Awaitable[dict[str, object]]]
 
@@ -30,20 +42,18 @@ _FALLBACK_NARRATIVE = (
 
 
 def make_verify_chat_node(
-    allowed_types: frozenset[BriefItemType] | None = None,
+    allowed_types: frozenset[ChatFactType] | None = None,
 ) -> VerifyChatNode:
-    types = allowed_types if allowed_types is not None else frozenset(BriefItemType)
+    types = allowed_types if allowed_types is not None else frozenset(ChatFactType)
 
     async def verify_chat_node(state: ChatState) -> dict[str, object]:
         async with step("verify_chat") as record:
-            fact_result = verify_items(
+            verified_facts, failures = _verify_chat_facts(
                 state.parsed_facts,
                 state.cached_context,
                 expected_patient_uuid=state.patient_uuid,
                 allowed_types=types,
             )
-            verified_facts = fact_result.verified
-            failures = list(fact_result.failures)
 
             narrative_failure = check_narrative_grounding(
                 state.parsed_narrative, verified_facts
@@ -70,3 +80,121 @@ def make_verify_chat_node(
             }
 
     return verify_chat_node
+
+
+def _verify_chat_facts(
+    facts: list[ChatFact],
+    tool_rows: list[TypedRow],
+    expected_patient_uuid: str,
+    *,
+    allowed_types: frozenset[ChatFactType],
+    now: datetime | None = None,
+) -> tuple[list[ChatFact], list[VerificationFailure]]:
+    verified: list[ChatFact] = []
+    failures: list[VerificationFailure] = []
+    moment = now or datetime.now(tz=UTC)
+
+    for index, fact in enumerate(facts):
+        failure = (
+            _check_disabled_type(fact, allowed_types, item_index=index)
+            or _check_citation_floor(fact, item_index=index)
+            or _check_advisory_denylist(fact, item_index=index)
+            or check_citations_exist(fact, tool_rows, item_index=index)
+            or check_patient_binding(fact, tool_rows, expected_patient_uuid, item_index=index)
+            or _check_type_table_compatibility(fact, item_index=index)
+            or check_typed_fact_reextraction(fact, tool_rows, item_index=index)
+            or _check_staleness(fact, tool_rows, moment, item_index=index)
+        )
+        if failure is None:
+            verified.append(fact)
+        else:
+            failures.append(failure)
+
+    return verified, failures
+
+
+def _check_disabled_type(
+    fact: ChatFact,
+    allowed_types: frozenset[ChatFactType],
+    item_index: int,
+) -> VerificationFailure | None:
+    if fact.type in allowed_types:
+        return None
+    return VerificationFailure(
+        rule="tier2_type_disabled",
+        detail=f"type {fact.type.value!r} is disabled in this deployment",
+        item_index=item_index,
+    )
+
+
+def _check_citation_floor(
+    fact: ChatFact,
+    item_index: int,
+) -> VerificationFailure | None:
+    if fact.citations:
+        return None
+    return VerificationFailure(
+        rule="tier2_citation_floor",
+        detail="item has no citations",
+        item_index=item_index,
+    )
+
+
+def _check_advisory_denylist(
+    fact: ChatFact,
+    item_index: int,
+) -> VerificationFailure | None:
+    match = ADVISORY_DENYLIST.search(fact.text)
+    if match is None:
+        return None
+    return VerificationFailure(
+        rule="tier2_advisory_denylist",
+        detail=f"text contains denied advisory phrase {match.group(0)!r}",
+        item_index=item_index,
+    )
+
+
+def _check_type_table_compatibility(
+    fact: ChatFact,
+    item_index: int,
+) -> VerificationFailure | None:
+    allowed = CHAT_ALLOWED_TABLES_FOR_TYPE.get(fact.type, frozenset())
+    for citation in fact.citations:
+        if citation.resource_type not in allowed:
+            return VerificationFailure(
+                rule="tier1_type_table_compatibility",
+                detail=(
+                    f"item type {fact.type.value} cannot cite "
+                    f"{citation.resource_type}; allowed: {sorted(allowed)}"
+                ),
+                item_index=item_index,
+            )
+    return None
+
+
+def _check_staleness(
+    fact: ChatFact,
+    tool_rows: list[TypedRow],
+    now: datetime,
+    item_index: int,
+) -> VerificationFailure | None:
+    max_age_days = CHAT_MAX_AGE_DAYS_FOR_TYPE.get(fact.type)
+    if max_age_days is None:
+        return None
+    rows_by_id = {row.resource_id: row for row in tool_rows}
+    cited_rows = [rows_by_id[c.resource_id] for c in fact.citations if c.resource_id in rows_by_id]
+    if not cited_rows:
+        return None
+    youngest = max(row.last_updated for row in cited_rows)
+    if youngest.tzinfo is None:
+        youngest = youngest.replace(tzinfo=UTC)
+    if now - youngest > timedelta(days=max_age_days):
+        return VerificationFailure(
+            rule="tier1_staleness",
+            detail=(
+                f"youngest citation {youngest.isoformat()} is older than "
+                f"{max_age_days} days for type {fact.type.value}"
+            ),
+            item_index=item_index,
+        )
+    return None
