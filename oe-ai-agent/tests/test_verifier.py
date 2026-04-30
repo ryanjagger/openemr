@@ -33,7 +33,7 @@ def _row(
     *,
     patient_id: str = PATIENT,
     last_updated: datetime = NOW,
-    fields: dict | None = None,
+    fields: dict[str, object] | None = None,
     verbatim: str | None = None,
 ) -> TypedRow:
     return TypedRow(
@@ -97,6 +97,18 @@ def test_type_table_compatibility_fail_when_wrong_table() -> None:
 def test_typed_fact_reextraction_pass_when_number_present() -> None:
     rows = [_row("Observation", "obs-1", verbatim="creatinine 1.8 mg/dL")]
     item = _item(BriefItemType.OVERDUE, "creatinine 1.8 last check", [("Observation", "obs-1")])
+    assert check_typed_fact_reextraction(item, rows) is None
+
+
+def test_typed_fact_reextraction_pass_when_structured_number_equivalent() -> None:
+    rows = [
+        _row(
+            "Observation",
+            "obs-1",
+            fields={"valueQuantity": {"value": 7, "unit": "%"}},
+        )
+    ]
+    item = _item(BriefItemType.OVERDUE, "A1c 7.0 %", [("Observation", "obs-1")])
     assert check_typed_fact_reextraction(item, rows) is None
 
 

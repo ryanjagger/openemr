@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from oe_ai_agent.schemas.brief import BriefItem, VerificationFailure
+from oe_ai_agent.schemas.brief import Citation, VerificationFailure
 from oe_ai_agent.schemas.observability import ResponseMeta
 
 
@@ -27,6 +27,36 @@ class ChatMessage(BaseModel):
 
     role: ChatRole
     content: str
+
+
+class ChatFactType(StrEnum):
+    MEDICATION = "medication"
+    MEDICATION_CHANGE = "medication_change"
+    PROBLEM = "problem"
+    ALLERGY = "allergy"
+    LAB_RESULT = "lab_result"
+    VITAL_SIGN = "vital_sign"
+    OBSERVATION = "observation"
+    ENCOUNTER = "encounter"
+    NOTE = "note"
+    ORDER = "order"
+    PROCEDURE = "procedure"
+    IMMUNIZATION = "immunization"
+    APPOINTMENT = "appointment"
+    CARE_PLAN = "care_plan"
+    DIAGNOSTIC_REPORT = "diagnostic_report"
+    CODE_STATUS = "code_status"
+
+
+class ChatFact(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    type: ChatFactType
+    text: str
+    verbatim_excerpts: list[str] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
+    verified: bool = True
+    anchor: int | None = None
 
 
 class ChatRequest(BaseModel):
@@ -49,7 +79,7 @@ class ChatTurnResponse(BaseModel):
     conversation_id: str
     model_id: str
     narrative: str
-    facts: list[BriefItem] = Field(default_factory=list)
+    facts: list[ChatFact] = Field(default_factory=list)
     verification_failures: list[VerificationFailure] = Field(default_factory=list)
     meta: ResponseMeta = Field(default_factory=ResponseMeta)
 

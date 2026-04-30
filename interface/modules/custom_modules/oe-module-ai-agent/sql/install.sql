@@ -32,7 +32,7 @@ INSERT INTO `oauth_clients` (
     NULL,
     '',
     '',
-    'openid api:fhir user/Patient.read user/Condition.read user/MedicationRequest.read user/AllergyIntolerance.read user/Encounter.read user/Observation.read user/DocumentReference.read',
+    'openid api:fhir user/Patient.read user/Condition.read user/MedicationRequest.read user/AllergyIntolerance.read user/Encounter.read user/Observation.read user/DocumentReference.read user/ServiceRequest.read user/Procedure.read user/Immunization.read',
     0,
     1,
     NOW()

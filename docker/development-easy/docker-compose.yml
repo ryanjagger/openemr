@@ -196,6 +196,7 @@ services:
       INTERNAL_AUTH_SECRET: ${INTERNAL_AUTH_SECRET:-dev-internal-auth-secret}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       LLM_MODEL: ${LLM_MODEL:-anthropic/claude-sonnet-4-6}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-4096}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AI_AGENT_ENABLE_FREETEXT_TYPES: ${AI_AGENT_ENABLE_FREETEXT_TYPES:-false}
       OPENEMR_FHIR_BASE: https://openemr/apis/default/fhir

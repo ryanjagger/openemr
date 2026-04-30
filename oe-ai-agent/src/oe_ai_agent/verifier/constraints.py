@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 
 from oe_ai_agent.schemas.brief import BriefItemType
+from oe_ai_agent.schemas.chat import ChatFactType
 
 ALLOWED_TABLES_FOR_TYPE: dict[BriefItemType, frozenset[str]] = {
     BriefItemType.MED_CURRENT: frozenset({"MedicationRequest"}),
@@ -26,6 +27,25 @@ ALLOWED_TABLES_FOR_TYPE: dict[BriefItemType, frozenset[str]] = {
     BriefItemType.ALLERGY: frozenset({"AllergyIntolerance"}),
 }
 
+CHAT_ALLOWED_TABLES_FOR_TYPE: dict[ChatFactType, frozenset[str]] = {
+    ChatFactType.MEDICATION: frozenset({"MedicationRequest"}),
+    ChatFactType.MEDICATION_CHANGE: frozenset({"MedicationRequest", "DocumentReference"}),
+    ChatFactType.PROBLEM: frozenset({"Condition"}),
+    ChatFactType.ALLERGY: frozenset({"AllergyIntolerance"}),
+    ChatFactType.LAB_RESULT: frozenset({"Observation", "DiagnosticReport"}),
+    ChatFactType.VITAL_SIGN: frozenset({"Observation"}),
+    ChatFactType.OBSERVATION: frozenset({"Observation"}),
+    ChatFactType.ENCOUNTER: frozenset({"Encounter"}),
+    ChatFactType.NOTE: frozenset({"DocumentReference"}),
+    ChatFactType.ORDER: frozenset({"ServiceRequest"}),
+    ChatFactType.PROCEDURE: frozenset({"Procedure"}),
+    ChatFactType.IMMUNIZATION: frozenset({"Immunization"}),
+    ChatFactType.APPOINTMENT: frozenset({"Appointment"}),
+    ChatFactType.CARE_PLAN: frozenset({"CarePlan", "Goal"}),
+    ChatFactType.DIAGNOSTIC_REPORT: frozenset({"DiagnosticReport"}),
+    ChatFactType.CODE_STATUS: frozenset({"Observation", "DocumentReference"}),
+}
+
 
 MAX_AGE_DAYS_FOR_TYPE: dict[BriefItemType, int | None] = {
     BriefItemType.MED_CURRENT: 365,
@@ -35,6 +55,25 @@ MAX_AGE_DAYS_FOR_TYPE: dict[BriefItemType, int | None] = {
     BriefItemType.AGENDA_ITEM: 90,
     BriefItemType.CODE_STATUS: None,
     BriefItemType.ALLERGY: None,
+}
+
+CHAT_MAX_AGE_DAYS_FOR_TYPE: dict[ChatFactType, int | None] = {
+    ChatFactType.MEDICATION: 365,
+    ChatFactType.MEDICATION_CHANGE: 180,
+    ChatFactType.PROBLEM: None,
+    ChatFactType.ALLERGY: None,
+    ChatFactType.LAB_RESULT: None,
+    ChatFactType.VITAL_SIGN: 365,
+    ChatFactType.OBSERVATION: None,
+    ChatFactType.ENCOUNTER: None,
+    ChatFactType.NOTE: None,
+    ChatFactType.ORDER: None,
+    ChatFactType.PROCEDURE: None,
+    ChatFactType.IMMUNIZATION: None,
+    ChatFactType.APPOINTMENT: None,
+    ChatFactType.CARE_PLAN: None,
+    ChatFactType.DIAGNOSTIC_REPORT: None,
+    ChatFactType.CODE_STATUS: None,
 }
 
 

@@ -9,14 +9,24 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
+from typing import Protocol
 
-from oe_ai_agent.schemas.brief import BriefItem, VerificationFailure
+from oe_ai_agent.schemas.brief import BriefItem, Citation, VerificationFailure
 from oe_ai_agent.schemas.tool_results import TypedRow
 from oe_ai_agent.verifier.constraints import ALLOWED_TABLES_FOR_TYPE, MAX_AGE_DAYS_FOR_TYPE
 
 
+class CitationBackedText(Protocol):
+    @property
+    def text(self) -> str: ...
+
+    @property
+    def citations(self) -> list[Citation]: ...
+
+
 def check_citations_exist(
-    item: BriefItem,
+    item: CitationBackedText,
     tool_rows: list[TypedRow],
     item_index: int | None = None,
 ) -> VerificationFailure | None:
@@ -36,7 +46,7 @@ def check_citations_exist(
 
 
 def check_patient_binding(
-    item: BriefItem,
+    item: CitationBackedText,
     tool_rows: list[TypedRow],
     expected_patient_uuid: str,
     item_index: int | None = None,
@@ -83,7 +93,7 @@ _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def check_typed_fact_reextraction(
-    item: BriefItem,
+    item: CitationBackedText,
     tool_rows: list[TypedRow],
     item_index: int | None = None,
 ) -> VerificationFailure | None:
@@ -101,6 +111,7 @@ def check_typed_fact_reextraction(
         return None  # citation existence handles this
 
     cited_blob = " ".join(_serialize_row_for_match(row) for row in cited_rows)
+    cited_numbers = _numbers_in(cited_blob)
     cited_resource_ids = {row.resource_id for row in cited_rows}
 
     for date_match in _DATE_RE.findall(item.text):
@@ -115,7 +126,10 @@ def check_typed_fact_reextraction(
         # Skip numbers that appear inside a cited resource_id; those are not facts.
         if any(number_match in rid for rid in cited_resource_ids):
             continue
-        if number_match not in cited_blob:
+        if number_match not in cited_blob and not _number_equivalent(
+            number_match,
+            cited_numbers,
+        ):
             return VerificationFailure(
                 rule="tier1_typed_fact_reextraction",
                 detail=f"number {number_match!r} not found in cited rows",
@@ -168,3 +182,22 @@ def _stringify(value: object) -> str:
     if isinstance(value, list):
         return " ".join(_stringify(v) for v in value)
     return str(value)
+
+
+def _numbers_in(text: str) -> list[str]:
+    return _NUMBER_RE.findall(text)
+
+
+def _number_equivalent(candidate: str, references: list[str]) -> bool:
+    try:
+        candidate_decimal = Decimal(candidate)
+    except InvalidOperation:
+        return False
+
+    for reference in references:
+        try:
+            if candidate_decimal == Decimal(reference):
+                return True
+        except InvalidOperation:
+            continue
+    return False

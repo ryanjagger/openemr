@@ -24,10 +24,17 @@ nouns inside fact cards rather than freeform prose.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
+from typing import Protocol
 
-from oe_ai_agent.schemas.brief import BriefItem, VerificationFailure
+from oe_ai_agent.schemas.brief import VerificationFailure
 from oe_ai_agent.verifier.constraints import ADVISORY_DENYLIST
-from oe_ai_agent.verifier.tier1_structural import _DATE_RE, _NUMBER_RE
+from oe_ai_agent.verifier.tier1_structural import (
+    _DATE_RE,
+    _NUMBER_RE,
+    _number_equivalent,
+    _numbers_in,
+)
 
 # Footnote anchors like [^1] reference fact cards, not numeric facts. Strip
 # them before scanning for numbers so the anchor index doesn't trigger the
@@ -35,9 +42,17 @@ from oe_ai_agent.verifier.tier1_structural import _DATE_RE, _NUMBER_RE
 _ANCHOR_RE = re.compile(r"\[\^?\d+\]")
 
 
+class FactExcerptSource(Protocol):
+    @property
+    def text(self) -> str: ...
+
+    @property
+    def verbatim_excerpts(self) -> list[str]: ...
+
+
 def check_narrative_grounding(
     narrative: str,
-    facts: list[BriefItem],
+    facts: Sequence[FactExcerptSource],
 ) -> VerificationFailure | None:
     """Return a VerificationFailure if narrative drifts from the fact set."""
     if not narrative.strip():
@@ -55,8 +70,12 @@ def check_narrative_grounding(
 
     cleaned = _ANCHOR_RE.sub(" ", narrative)
     grounded_blob = " ".join(
-        excerpt for fact in facts for excerpt in fact.verbatim_excerpts
+        segment
+        for fact in facts
+        for segment in [fact.text, *fact.verbatim_excerpts]
+        if segment
     )
+    grounded_numbers = _numbers_in(grounded_blob)
 
     for date_match in _DATE_RE.findall(cleaned):
         if date_match not in grounded_blob:
@@ -66,10 +85,13 @@ def check_narrative_grounding(
             )
 
     for number_match in _NUMBER_RE.findall(cleaned):
-        if number_match not in grounded_blob:
+        if number_match not in grounded_blob and not _number_equivalent(
+            number_match,
+            grounded_numbers,
+        ):
             return VerificationFailure(
                 rule="tier1_narrative_grounding",
-                detail=f"number {number_match!r} not grounded in any fact excerpt",
+                detail=f"number {number_match!r} not grounded in any verified fact",
             )
 
     return None

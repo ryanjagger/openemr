@@ -43,6 +43,9 @@ final class BearerTokenMinter
         'user/Encounter.read',
         'user/Observation.read',
         'user/DocumentReference.read',
+        'user/ServiceRequest.read',
+        'user/Procedure.read',
+        'user/Immunization.read',
     ];
 
     public function __construct(
