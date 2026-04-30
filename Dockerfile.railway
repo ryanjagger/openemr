@@ -1,0 +1,17 @@
+FROM openemr/openemr:next
+
+# Save the image-baked sites/ tree so the runtime entrypoint can repopulate
+# the Railway persistent volume the first time it mounts (mounting empty
+# would otherwise shadow sites/default/sqlconf.php and break the auto-installer).
+RUN cp -a /var/www/localhost/htdocs/openemr/sites /var/sites-template
+
+# Image hardcodes `Listen 0.0.0.0:80` so port 80 is IPv4-only. Railway's edge
+# reaches upstream over IPv6, so we drop the address binding and let Apache
+# bind dual-stack on port 80.
+RUN sed -i 's/^Listen 0.0.0.0:80$/Listen 80/' /etc/apache2/httpd.conf
+
+COPY --chown=apache:root interface/modules/custom_modules/oe-module-ai-agent /var/www/localhost/htdocs/openemr/interface/modules/custom_modules/oe-module-ai-agent
+COPY --chown=apache:root sql /var/www/localhost/htdocs/openemr/sql
+COPY --chmod=0755 railway-entrypoint.sh /usr/local/bin/railway-entrypoint.sh
+
+CMD ["/usr/local/bin/railway-entrypoint.sh"]

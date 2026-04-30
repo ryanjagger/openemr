@@ -109,7 +109,9 @@ SET @sql := IF(
     'ALTER TABLE `llm_call_log` ADD COLUMN `latency_ms` INT UNSIGNED NULL AFTER `completion_tokens`',
     'SELECT 1'
 );
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 SET @col_exists := (
     SELECT COUNT(*) FROM `information_schema`.`COLUMNS`
@@ -122,7 +124,9 @@ SET @sql := IF(
     'ALTER TABLE `llm_call_log` ADD COLUMN `cost_usd_micros` BIGINT UNSIGNED NULL AFTER `latency_ms`',
     'SELECT 1'
 );
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 SET @col_exists := (
     SELECT COUNT(*) FROM `information_schema`.`COLUMNS`
@@ -135,7 +139,9 @@ SET @sql := IF(
     'ALTER TABLE `llm_call_log` ADD COLUMN `steps_json` LONGTEXT NULL AFTER `tool_calls`',
     'SELECT 1'
 );
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 SET @col_exists := (
     SELECT COUNT(*) FROM `information_schema`.`COLUMNS`
@@ -148,7 +154,9 @@ SET @sql := IF(
     'ALTER TABLE `llm_call_log` ADD COLUMN `error_code` VARCHAR(64) NULL AFTER `verification_failures`, ADD COLUMN `error_detail` TEXT NULL AFTER `error_code`',
     'SELECT 1'
 );
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 SET @idx_exists := (
     SELECT COUNT(*) FROM `information_schema`.`STATISTICS`
@@ -161,4 +169,6 @@ SET @sql := IF(
     'ALTER TABLE `llm_call_log` ADD INDEX `idx_action_created` (`action_type`, `created_at`)',
     'SELECT 1'
 );
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
