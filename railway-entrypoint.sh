@@ -15,3 +15,4 @@ fi
 
 cd /var/www/localhost/htdocs/openemr
 exec ./openemr.sh "$@"
+
