@@ -40,3 +40,4 @@ async def get_observations(
 
     bundle = await client.search("Observation", params=params)
     return [to_typed_row(TOOL_NAME, r, patient_uuid) for r in bundle_resources(bundle)]
+

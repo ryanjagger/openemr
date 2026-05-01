@@ -32,3 +32,4 @@ async def get_medication_history(
 
     bundle = await client.search("MedicationRequest", params=params)
     return [to_typed_row(TOOL_NAME, r, patient_uuid) for r in bundle_resources(bundle)]
+

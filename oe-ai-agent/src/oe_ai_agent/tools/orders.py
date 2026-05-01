@@ -38,3 +38,4 @@ async def get_orders(
 
     bundle = await client.search("ServiceRequest", params=params)
     return [to_typed_row(TOOL_NAME, r, patient_uuid) for r in bundle_resources(bundle)]
+
