@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 from oe_ai_agent.agent.chat_state import ChatState
-from oe_ai_agent.observability import step
+from oe_ai_agent.observability import step, update_langfuse_observation
 from oe_ai_agent.schemas.brief import VerificationFailure
 from oe_ai_agent.schemas.chat import ChatFact, ChatFactType
 from oe_ai_agent.schemas.tool_results import TypedRow
@@ -68,12 +68,32 @@ def make_verify_chat_node(
             if narrative_failure is not None:
                 failures.append(narrative_failure)
                 record.attrs["narrative_failure_rule"] = narrative_failure.rule
+                update_langfuse_observation(
+                    output={
+                        "verified_facts": [
+                            fact.model_dump(mode="json") for fact in verified_facts
+                        ],
+                        "failures": [
+                            failure.model_dump(mode="json") for failure in failures
+                        ],
+                        "narrative": _FALLBACK_NARRATIVE,
+                    }
+                )
                 return {
                     "verified_facts": verified_facts,
                     "verification_failures": failures,
                     "parsed_narrative": _FALLBACK_NARRATIVE,
                 }
 
+            update_langfuse_observation(
+                output={
+                    "verified_facts": [
+                        fact.model_dump(mode="json") for fact in verified_facts
+                    ],
+                    "failures": [failure.model_dump(mode="json") for failure in failures],
+                    "narrative": state.parsed_narrative,
+                }
+            )
             return {
                 "verified_facts": verified_facts,
                 "verification_failures": failures,

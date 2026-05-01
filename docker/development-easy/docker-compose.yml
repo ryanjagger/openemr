@@ -199,6 +199,12 @@ services:
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-4096}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AI_AGENT_ENABLE_FREETEXT_TYPES: ${AI_AGENT_ENABLE_FREETEXT_TYPES:-false}
+      LANGFUSE_TRACING_ENABLED: ${LANGFUSE_TRACING_ENABLED:-true}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://us.cloud.langfuse.com}
+      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-development}
+      LANGFUSE_FLUSH_ON_REQUEST: ${LANGFUSE_FLUSH_ON_REQUEST:-true}
       OPENEMR_FHIR_BASE: https://openemr/apis/default/fhir
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]

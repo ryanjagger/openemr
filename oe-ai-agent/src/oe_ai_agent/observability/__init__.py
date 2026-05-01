@@ -7,6 +7,21 @@ envelope (so the PHP audit log persists it) and as DEBUG/WARN log lines
 """
 
 from oe_ai_agent.observability.cost import compute_completion_cost
+from oe_ai_agent.observability.langfuse import (
+    flush as flush_langfuse,
+)
+from oe_ai_agent.observability.langfuse import (
+    observation as langfuse_observation,
+)
+from oe_ai_agent.observability.langfuse import (
+    request_trace as langfuse_request_trace,
+)
+from oe_ai_agent.observability.langfuse import (
+    shutdown as shutdown_langfuse,
+)
+from oe_ai_agent.observability.langfuse import (
+    update_current_observation as update_langfuse_observation,
+)
 from oe_ai_agent.observability.logging_config import configure_logging
 from oe_ai_agent.observability.trace import (
     StepRecord,
@@ -25,7 +40,12 @@ __all__ = [
     "compute_completion_cost",
     "configure_logging",
     "current_trace",
+    "flush_langfuse",
     "get_logger",
+    "langfuse_observation",
+    "langfuse_request_trace",
+    "shutdown_langfuse",
     "step",
+    "update_langfuse_observation",
     "use_trace",
 ]

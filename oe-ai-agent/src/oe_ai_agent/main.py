@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from functools import cache
 
 from fastapi import Depends, FastAPI
@@ -18,6 +20,8 @@ from oe_ai_agent.observability import (
     bind_request_context,
     configure_logging,
     get_logger,
+    langfuse_request_trace,
+    shutdown_langfuse,
     use_trace,
 )
 from oe_ai_agent.observability.trace import TraceCollector, clear_request_context
@@ -33,7 +37,16 @@ from oe_ai_agent.schemas.observability import ResponseMeta, StepEntry, UsageBloc
 configure_logging()
 logger = get_logger(__name__)
 
-app = FastAPI(title="oe-ai-agent", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    try:
+        yield
+    finally:
+        shutdown_langfuse()
+
+
+app = FastAPI(title="oe-ai-agent", version="0.1.0", lifespan=lifespan)
 
 
 @cache
@@ -89,7 +102,18 @@ async def brief(request: BriefRequest) -> BriefResponse:
         model=model_id,
     )
     try:
-        async with use_trace() as trace:
+        async with use_trace() as trace, langfuse_request_trace(
+            name="brief.read",
+            request_id=request.request_id,
+            patient_uuid=request.patient_uuid,
+            model_id=model_id,
+            action="brief.read",
+            input_payload={
+                "patient_uuid": request.patient_uuid,
+                "fhir_base_url": request.fhir_base_url,
+            },
+            tags=["brief", "demo"],
+        ) as lf_trace:
             try:
                 final_state_dict = await _graph().ainvoke(initial)  # type: ignore[attr-defined]
             except Exception as exc:
@@ -101,7 +125,7 @@ async def brief(request: BriefRequest) -> BriefResponse:
                     error_code="agent_error",
                     meta=meta,
                 )
-                return BriefResponse(
+                response = BriefResponse(
                     request_id=request.request_id,
                     model_id=model_id,
                     items=[],
@@ -113,22 +137,37 @@ async def brief(request: BriefRequest) -> BriefResponse:
                     ],
                     meta=meta,
                 )
+                lf_trace.update(
+                    output=response.model_dump_json_safe(),
+                    metadata={"status": "error", "error_code": "agent_error"},
+                )
+                return response
 
             final = AgentState.model_validate(final_state_dict)
             meta = _build_meta(trace)
+            status = "ok" if not final.verification_failures else "partial"
             _emit_complete(
                 action="brief.read",
-                status="ok" if not final.verification_failures else "partial",
+                status=status,
                 error_code=None,
                 meta=meta,
             )
-            return BriefResponse(
+            response = BriefResponse(
                 request_id=request.request_id,
                 model_id=model_id,
                 items=final.verified_items,
                 verification_failures=final.verification_failures,
                 meta=meta,
             )
+            lf_trace.update(
+                output=response.model_dump_json_safe(),
+                metadata={
+                    "status": status,
+                    "verified_item_count": len(final.verified_items),
+                    "verification_failure_count": len(final.verification_failures),
+                },
+            )
+            return response
     finally:
         clear_request_context()
 
@@ -147,7 +186,20 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
         model=model_id,
     )
     try:
-        async with use_trace() as trace:
+        async with use_trace() as trace, langfuse_request_trace(
+            name="chat.turn",
+            request_id=request.request_id,
+            conversation_id=entry.conversation_id,
+            patient_uuid=request.patient_uuid,
+            model_id=model_id,
+            action="chat.turn",
+            input_payload={
+                "patient_uuid": request.patient_uuid,
+                "conversation_id": entry.conversation_id,
+                "messages": [message.model_dump(mode="json") for message in request.messages],
+            },
+            tags=["chat", "demo"],
+        ) as lf_trace:
             try:
                 await store.increment_turn(entry.conversation_id)
             except TurnLimitError as exc:
@@ -158,7 +210,7 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
                     error_code="turn_limit_exceeded",
                     meta=meta,
                 )
-                return ChatTurnResponse(
+                response = ChatTurnResponse(
                     request_id=request.request_id,
                     conversation_id=entry.conversation_id,
                     model_id=model_id,
@@ -171,6 +223,11 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
                     ],
                     meta=meta,
                 )
+                lf_trace.update(
+                    output=response.model_dump_json_safe(),
+                    metadata={"status": "denied", "error_code": "turn_limit_exceeded"},
+                )
+                return response
 
             initial = ChatState(
                 patient_uuid=request.patient_uuid,
@@ -192,7 +249,7 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
                     error_code="agent_error",
                     meta=meta,
                 )
-                return ChatTurnResponse(
+                response = ChatTurnResponse(
                     request_id=request.request_id,
                     conversation_id=entry.conversation_id,
                     model_id=model_id,
@@ -205,6 +262,11 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
                     ],
                     meta=meta,
                 )
+                lf_trace.update(
+                    output=response.model_dump_json_safe(),
+                    metadata={"status": "error", "error_code": "agent_error"},
+                )
+                return response
 
             final = ChatState.model_validate(final_state_dict)
             await store.update_context(entry.conversation_id, final.cached_context)
@@ -216,7 +278,7 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
                 error_code=error_code,
                 meta=meta,
             )
-            return ChatTurnResponse(
+            response = ChatTurnResponse(
                 request_id=request.request_id,
                 conversation_id=entry.conversation_id,
                 model_id=model_id,
@@ -225,6 +287,16 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
                 verification_failures=final.verification_failures,
                 meta=meta,
             )
+            lf_trace.update(
+                output=response.model_dump_json_safe(),
+                metadata={
+                    "status": status,
+                    "error_code": error_code,
+                    "verified_fact_count": len(final.verified_facts),
+                    "verification_failure_count": len(final.verification_failures),
+                },
+            )
+            return response
     finally:
         clear_request_context()
 

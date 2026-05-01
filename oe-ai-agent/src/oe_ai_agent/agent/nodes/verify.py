@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from oe_ai_agent.agent.state import AgentState
-from oe_ai_agent.observability import step
+from oe_ai_agent.observability import step, update_langfuse_observation
 from oe_ai_agent.schemas.brief import BriefItemType
 from oe_ai_agent.verifier import verify_items
 
@@ -29,6 +29,14 @@ def make_verify_node(
                 {
                     "verified_count": len(result.verified),
                     "failure_count": len(result.failures),
+                }
+            )
+            update_langfuse_observation(
+                output={
+                    "verified": [item.model_dump(mode="json") for item in result.verified],
+                    "failures": [
+                        failure.model_dump(mode="json") for failure in result.failures
+                    ],
                 }
             )
         return {

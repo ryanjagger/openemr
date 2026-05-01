@@ -26,6 +26,7 @@ from oe_ai_agent.llm.client import (
     LlmToolCall,
     LlmUsage,
 )
+from oe_ai_agent.observability import langfuse_observation
 from oe_ai_agent.observability.cost import compute_completion_cost
 
 DEFAULT_MODEL = "anthropic/claude-sonnet-4-6"
@@ -57,10 +58,27 @@ class LiteLLMClient:
         if response_format is not None:
             kwargs["response_format"] = response_format
 
-        started = time.monotonic_ns()
-        response = await litellm.acompletion(**kwargs)
-        latency_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
-        usage = _extract_usage(response, latency_ms)
+        async with langfuse_observation(
+            name="litellm.chat",
+            as_type="generation",
+            input_payload={"messages": messages, "response_format": response_format},
+            model=self._model,
+            model_parameters={"max_tokens": self._max_tokens},
+        ) as generation:
+            started = time.monotonic_ns()
+            try:
+                response = await litellm.acompletion(**kwargs)
+            except Exception as exc:
+                generation.update(output={"error": f"{type(exc).__name__}: {exc}"[:400]})
+                raise
+            latency_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
+            usage = _extract_usage(response, latency_ms)
+            generation.update(
+                output=response,
+                usage_details=_usage_details(usage),
+                cost_details={"total": usage.cost_usd},
+                metadata={"latency_ms": usage.latency_ms},
+            )
 
         choices = response["choices"]
         content = choices[0]["message"].get("content")
@@ -93,10 +111,31 @@ class LiteLLMClient:
         if response_format is not None:
             kwargs["response_format"] = response_format
 
-        started = time.monotonic_ns()
-        response = await litellm.acompletion(**kwargs)
-        latency_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
-        usage = _extract_usage(response, latency_ms)
+        async with langfuse_observation(
+            name="litellm.chat_with_tools",
+            as_type="generation",
+            input_payload={
+                "messages": messages,
+                "tools": tools,
+                "response_format": response_format,
+            },
+            model=self._model,
+            model_parameters={"max_tokens": self._max_tokens},
+        ) as generation:
+            started = time.monotonic_ns()
+            try:
+                response = await litellm.acompletion(**kwargs)
+            except Exception as exc:
+                generation.update(output={"error": f"{type(exc).__name__}: {exc}"[:400]})
+                raise
+            latency_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
+            usage = _extract_usage(response, latency_ms)
+            generation.update(
+                output=response,
+                usage_details=_usage_details(usage),
+                cost_details={"total": usage.cost_usd},
+                metadata={"latency_ms": usage.latency_ms},
+            )
 
         message = response["choices"][0]["message"]
         content = _attr_or_key(message, "content")
@@ -213,6 +252,14 @@ def _extract_usage(response: Any, latency_ms: int) -> LlmUsage:
         cost_usd=cost_usd,
         latency_ms=latency_ms,
     )
+
+
+def _usage_details(usage: LlmUsage) -> dict[str, int]:
+    return {
+        "prompt_tokens": usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens": usage.total_tokens,
+    }
 
 
 def _attr_or_key(obj: Any, name: str) -> Any:

@@ -24,7 +24,12 @@ from oe_ai_agent.llm.prompts_chat import (
     build_chat_messages,
     chat_response_format,
 )
-from oe_ai_agent.observability import current_trace, get_logger, step
+from oe_ai_agent.observability import (
+    current_trace,
+    get_logger,
+    step,
+    update_langfuse_observation,
+)
 from oe_ai_agent.schemas.chat import ChatFactType
 from oe_ai_agent.schemas.tool_results import ToolError, TypedRow
 from oe_ai_agent.tools import FhirClient
@@ -155,8 +160,20 @@ async def _execute_traced_tool(
             tool_record.status = "error"
             tool_record.error = error.message[:400]
             tool_record.attrs["status_code"] = error.status_code or 0
+            update_langfuse_observation(
+                output=payload,
+                metadata={
+                    "status": "error",
+                    "status_code": error.status_code,
+                    "row_count": 0,
+                },
+            )
         else:
             tool_record.attrs["row_count"] = len(rows)
+            update_langfuse_observation(
+                output=payload,
+                metadata={"status": "ok", "row_count": len(rows)},
+            )
         return rows, error, payload
 
 

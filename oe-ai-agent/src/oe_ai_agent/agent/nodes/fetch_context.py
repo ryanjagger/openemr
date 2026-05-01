@@ -13,7 +13,7 @@ import time
 from collections.abc import Awaitable
 from dataclasses import dataclass
 
-from oe_ai_agent.observability import StepRecord, current_trace
+from oe_ai_agent.observability import StepRecord, current_trace, langfuse_observation
 from oe_ai_agent.schemas.tool_results import ToolError, TypedRow
 from oe_ai_agent.tools import (
     FhirClient,
@@ -58,28 +58,43 @@ async def fetch_context(client: FhirClient, patient_uuid: str) -> FetchContextRe
         name: str, tool: object
     ) -> tuple[str, list[TypedRow] | ToolError, int, int]:
         started = time.monotonic_ns()
-        try:
-            assert callable(tool)
-            coro: Awaitable[list[TypedRow]] = tool(client, patient_uuid)
-            rows = await coro
-            duration_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
-            return name, rows, duration_ms, started
-        except FhirError as exc:
-            duration_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
-            return (
-                name,
-                ToolError(tool_name=name, message=str(exc), status_code=exc.status_code),
-                duration_ms,
-                started,
-            )
-        except Exception as exc:
-            duration_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
-            return (
-                name,
-                ToolError(tool_name=name, message=f"{type(exc).__name__}: {exc}"),
-                duration_ms,
-                started,
-            )
+        async with langfuse_observation(
+            name=f"tool.{name}",
+            as_type="tool",
+            input_payload={"tool": name, "patient_uuid": patient_uuid},
+        ) as tool_span:
+            try:
+                assert callable(tool)
+                coro: Awaitable[list[TypedRow]] = tool(client, patient_uuid)
+                rows = await coro
+                duration_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
+                tool_span.update(
+                    output=_rows_payload(rows),
+                    metadata={"status": "ok", "row_count": len(rows)},
+                )
+                return name, rows, duration_ms, started
+            except FhirError as exc:
+                duration_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
+                tool_span.update(
+                    output={"error": str(exc), "status_code": exc.status_code},
+                    metadata={"status": "error", "status_code": exc.status_code},
+                )
+                return (
+                    name,
+                    ToolError(tool_name=name, message=str(exc), status_code=exc.status_code),
+                    duration_ms,
+                    started,
+                )
+            except Exception as exc:
+                duration_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
+                message = f"{type(exc).__name__}: {exc}"
+                tool_span.update(output={"error": message}, metadata={"status": "error"})
+                return (
+                    name,
+                    ToolError(tool_name=name, message=message),
+                    duration_ms,
+                    started,
+                )
 
     results = await asyncio.gather(*(_run(name, tool) for name, tool in _TOOL_REGISTRY))
 
@@ -114,3 +129,7 @@ async def fetch_context(client: FhirClient, patient_uuid: str) -> FetchContextRe
                 )
 
     return FetchContextResult(rows=rows, errors=errors)
+
+
+def _rows_payload(rows: list[TypedRow]) -> list[dict[str, object]]:
+    return [row.model_dump(mode="json") for row in rows]

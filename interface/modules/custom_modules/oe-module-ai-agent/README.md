@@ -58,3 +58,17 @@ curl -fs http://localhost:8400/healthz
 | `HTTP 401` | API CSRF token didn't validate — confirm the session is fresh |
 | `HTTP 502 / sidecar_unreachable` | `docker compose logs oe-ai-agent`; confirm the container is healthy |
 | `HTTP 404` | Module installed but route not registered — `docker compose exec openemr tail -200 /var/log/apache2/error_log` for stack traces |
+
+### Optional Langfuse tracing
+
+For synthetic/demo runs, set Langfuse project keys before starting the stack:
+
+```bash
+export LANGFUSE_PUBLIC_KEY=pk-lf-...
+export LANGFUSE_SECRET_KEY=sk-lf-...
+export LANGFUSE_BASE_URL=https://us.cloud.langfuse.com
+```
+
+The sidecar still returns and stores the local `ResponseMeta` trace when
+Langfuse is not configured. Raw Langfuse prompt/tool/output capture is for
+synthetic data only.

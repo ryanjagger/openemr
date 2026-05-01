@@ -35,6 +35,13 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from oe_ai_agent.observability.langfuse import (
+    observation as langfuse_observation,
+)
+from oe_ai_agent.observability.langfuse import (
+    update_current_observation,
+)
+
 if TYPE_CHECKING:
     from oe_ai_agent.llm.client import LlmUsage
 
@@ -141,38 +148,45 @@ async def step(name: str, **attrs: Any) -> AsyncIterator[StepRecord]:
     record = StepRecord(name=name, attrs=dict(attrs), started_at_monotonic_ns=time.monotonic_ns())
     log = structlog.get_logger(__name__)
     log.debug("step.start", step=name, **{k: _safe(v) for k, v in attrs.items()})
-    try:
-        yield record
-    except Exception as exc:
-        record.status = "error"
-        record.error = f"{type(exc).__name__}: {exc}"[:400]
-        record.duration_ms = max(
-            0, (time.monotonic_ns() - record.started_at_monotonic_ns) // 1_000_000
-        )
-        log.warning(
-            "step.error",
-            step=name,
-            duration_ms=record.duration_ms,
-            error=record.error,
-        )
-        collector = current_trace()
-        if collector is not None:
-            collector.add(record)
-        raise
-    else:
-        record.duration_ms = max(
-            0, (time.monotonic_ns() - record.started_at_monotonic_ns) // 1_000_000
-        )
-        log.debug(
-            "step.end",
-            step=name,
-            duration_ms=record.duration_ms,
-            status=record.status,
-            **{k: _safe(v) for k, v in record.attrs.items()},
-        )
-        collector = current_trace()
-        if collector is not None:
-            collector.add(record)
+    async with langfuse_observation(
+        name=name,
+        as_type=_langfuse_type_for_step(name),
+        input_payload={k: _safe(v) for k, v in attrs.items()},
+    ):
+        try:
+            yield record
+        except Exception as exc:
+            record.status = "error"
+            record.error = f"{type(exc).__name__}: {exc}"[:400]
+            record.duration_ms = max(
+                0, (time.monotonic_ns() - record.started_at_monotonic_ns) // 1_000_000
+            )
+            update_current_observation(metadata=_step_metadata(record))
+            log.warning(
+                "step.error",
+                step=name,
+                duration_ms=record.duration_ms,
+                error=record.error,
+            )
+            collector = current_trace()
+            if collector is not None:
+                collector.add(record)
+            raise
+        else:
+            record.duration_ms = max(
+                0, (time.monotonic_ns() - record.started_at_monotonic_ns) // 1_000_000
+            )
+            update_current_observation(metadata=_step_metadata(record))
+            log.debug(
+                "step.end",
+                step=name,
+                duration_ms=record.duration_ms,
+                status=record.status,
+                **{k: _safe(v) for k, v in record.attrs.items()},
+            )
+            collector = current_trace()
+            if collector is not None:
+                collector.add(record)
 
 
 def bind_request_context(**fields: Any) -> None:
@@ -197,3 +211,20 @@ def _safe(value: Any) -> Any:
     if isinstance(value, str) and len(value) > _LOG_VALUE_MAX:
         return value[:_LOG_VALUE_MAX] + "…"
     return value
+
+
+def _langfuse_type_for_step(name: str) -> str:
+    if name == "tool_call" or name.startswith("tool."):
+        return "tool"
+    if name in {"verify", "verify_chat"}:
+        return "guardrail"
+    return "span"
+
+
+def _step_metadata(record: StepRecord) -> dict[str, Any]:
+    return {
+        "status": record.status,
+        "duration_ms": record.duration_ms,
+        "error": record.error,
+        "attrs": dict(record.attrs),
+    }
