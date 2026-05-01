@@ -89,3 +89,4 @@ class FhirClient:
         if not isinstance(data, dict):
             raise FhirError("FHIR response was not a JSON object")
         return data
+

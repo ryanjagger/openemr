@@ -15,3 +15,4 @@ async def get_active_medications(client: FhirClient, patient_uuid: str) -> list[
         params={"patient": patient_uuid, "status": "active"},
     )
     return [to_typed_row(TOOL_NAME, r, patient_uuid) for r in bundle_resources(bundle)]
+

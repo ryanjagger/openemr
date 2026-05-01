@@ -56,3 +56,4 @@ def to_typed_row(
         fields=filter_fields(tool_name, resource),
         verbatim_excerpt=verbatim_excerpt,
     )
+

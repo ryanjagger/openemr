@@ -12,3 +12,4 @@ TOOL_NAME = "get_demographics"
 async def get_demographics(client: FhirClient, patient_uuid: str) -> list[TypedRow]:
     resource = await client.read("Patient", patient_uuid)
     return [to_typed_row(TOOL_NAME, resource, patient_uuid)]
+

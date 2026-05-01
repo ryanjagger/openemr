@@ -13,6 +13,9 @@ COPY pyproject.toml ./
 RUN uv sync --no-install-project --no-dev
 
 COPY src ./src
+RUN test -d src/oe_ai_agent/tools && test -f src/oe_ai_agent/tools/__init__.py \
+    || (echo 'BUILD ERROR: oe_ai_agent.tools missing from build context' \
+        && ls -laR src/oe_ai_agent/ && exit 1)
 RUN uv sync --no-dev
 
 EXPOSE 8000

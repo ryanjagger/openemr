@@ -20,3 +20,4 @@ async def get_recent_encounters(
         params={"patient": patient_uuid, "_count": limit, "_sort": "-date"},
     )
     return [to_typed_row(TOOL_NAME, r, patient_uuid) for r in bundle_resources(bundle)]
+

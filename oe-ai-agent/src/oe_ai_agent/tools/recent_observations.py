@@ -25,3 +25,4 @@ async def get_recent_observations(
         },
     )
     return [to_typed_row(TOOL_NAME, r, patient_uuid) for r in bundle_resources(bundle)]
+

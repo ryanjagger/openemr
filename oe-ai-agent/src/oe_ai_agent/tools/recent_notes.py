@@ -45,3 +45,4 @@ def _excerpt(resource: dict[str, Any]) -> str | None:
                 if isinstance(title, str) and title.strip():
                     return title.strip()
     return None
+

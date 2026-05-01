@@ -15,3 +15,4 @@ async def get_active_problems(client: FhirClient, patient_uuid: str) -> list[Typ
         params={"patient": patient_uuid, "clinical-status": "active"},
     )
     return [to_typed_row(TOOL_NAME, r, patient_uuid) for r in bundle_resources(bundle)]
+

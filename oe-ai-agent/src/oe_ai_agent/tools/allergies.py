@@ -12,3 +12,4 @@ TOOL_NAME = "get_allergies"
 async def get_allergies(client: FhirClient, patient_uuid: str) -> list[TypedRow]:
     bundle = await client.search("AllergyIntolerance", params={"patient": patient_uuid})
     return [to_typed_row(TOOL_NAME, r, patient_uuid) for r in bundle_resources(bundle)]
+
