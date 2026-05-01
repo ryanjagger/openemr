@@ -12,7 +12,7 @@ medications, allergies, vitals.
 | Environment | Command | Time |
 | --- | --- | --- |
 | Local Docker | `docker compose exec openemr /root/devtools import-random-patients 50` | ~2 min for 50 |
-| Railway | Pre-generate locally → base64-pipe over `railway ssh` → run `import_ccda.php --isDev=true` | ~7 min for 50 |
+| Railway | `tools/railway/import-synthea-demo-patients.sh --count 50` | ~7 min for 50 |
 
 Both end up calling the same script: `contrib/util/ccda_import/import_ccda.php`.
 The local devtool wraps it; on Railway you call it directly because the prod
@@ -69,6 +69,29 @@ doesn't have Java, Synthea, or the devtools script. The CCDA importer
 (`contrib/util/ccda_import/import_ccda.php`) **is** in the image — it
 ships with OpenEMR. So we generate CCDAs locally and feed them to the
 deployed importer.
+
+The scripted path is:
+
+```sh
+tools/railway/import-synthea-demo-patients.sh --count 50
+```
+
+The script:
+
+- requires the local Railway link to point at `deploy3` by default, so it
+  does not accidentally target an older Railway project;
+- generates CCDAs through the local `/root/devtools import-random-patients`
+  workflow unless you pass `--ccda-tar /path/to/synthea-ccdas.tar.gz`;
+- enables `OPENEMR_ENABLE_CCDA_IMPORT=1` on the deployed `openemr` service
+  and redeploys that service if the flag is not already live;
+- uploads the CCDA tarball over `railway ssh`, verifies the checksum, runs
+  `import_ccda.php --isDev=true`, prints row counts before and after, and
+  cleans up `/tmp`.
+
+The local-generation path also imports those same patients into the local
+development database as a side effect, because it intentionally reuses the
+existing devtools workflow. Use `--ccda-tar` if you already have a CCDA
+archive and want to skip local generation.
 
 ### 1. Have a tarball of CCDAs ready
 

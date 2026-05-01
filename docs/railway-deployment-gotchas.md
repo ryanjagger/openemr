@@ -17,6 +17,21 @@ The deployable artifacts at the repo root are:
 The sidecar (`oe-ai-agent/Dockerfile`) and MariaDB (`mariadb:11.8.6` image)
 deploy without custom Dockerfiles.
 
+Manual deploys are wrapped by:
+
+```sh
+tools/railway/deploy.sh openemr
+tools/railway/deploy.sh oe-ai-agent
+tools/railway/deploy.sh all
+```
+
+The script creates the small staging directories described below and pushes
+them with `railway up`; it also guards that the linked Railway project is
+`deploy3` before deploying. If Railway reports "no changes detected in watch
+paths" but you intentionally want a new image, pass `--force`; this modifies
+only the temporary staged Dockerfile with a timestamp label and leaves the
+worktree unchanged.
+
 ## 1. The empty volume shadows the image's site template
 
 OpenEMR's image ships a `sites/default/sqlconf.php.example` (and a default
