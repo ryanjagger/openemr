@@ -64,7 +64,9 @@ class ChatRequest(BaseModel):
     """Per-turn request from the PHP module.
 
     ``conversation_id`` is None on the first turn; the sidecar mints one
-    and returns it. Subsequent turns echo it back.
+    and returns it. Subsequent turns echo it back. ``user_id`` is the
+    OpenEMR user UUID of the clinician driving the chat — propagated to
+    Langfuse so per-user analytics work.
     """
 
     patient_uuid: str
@@ -73,6 +75,8 @@ class ChatRequest(BaseModel):
     request_id: str
     conversation_id: str | None = None
     messages: list[ChatMessage] = Field(default_factory=list)
+    user_id: str | None = None
+    session_id: str | None = None
 
 
 class ChatTurnResponse(BaseModel):

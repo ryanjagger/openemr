@@ -120,10 +120,20 @@ async def request_trace(
     action: str,
     input_payload: Mapping[str, Any],
     conversation_id: str | None = None,
+    user_id: str | None = None,
+    session_id: str | None = None,
     metadata: Mapping[str, Any] | None = None,
     tags: list[str] | None = None,
 ) -> AsyncIterator[LangfuseObservation]:
-    """Create one Langfuse root trace for a sidecar request."""
+    """Create one Langfuse root trace for a sidecar request.
+
+    ``user_id`` and the resolved session id are propagated via Langfuse's
+    ``propagate_attributes`` so per-user / per-session aggregations work in
+    the Langfuse UI — those metrics only consider the dedicated trace
+    fields, not metadata. The session id falls back to ``conversation_id``
+    when no explicit ``session_id`` is supplied so chat traces continue to
+    group by conversation as they did before sessions were modeled.
+    """
 
     client = _client()
     if client is None:
@@ -131,6 +141,7 @@ async def request_trace(
         return
 
     settings = settings_from_env()
+    resolved_session_id = session_id if session_id is not None else conversation_id
     trace_metadata: dict[str, Any] = {
         "request_id": request_id,
         "patient_uuid": patient_uuid,
@@ -141,6 +152,10 @@ async def request_trace(
     }
     if conversation_id is not None:
         trace_metadata["conversation_id"] = conversation_id
+    if user_id is not None:
+        trace_metadata["user_id"] = user_id
+    if resolved_session_id is not None:
+        trace_metadata["session_id"] = resolved_session_id
 
     try:
         root_cm = client.start_as_current_observation(
@@ -154,6 +169,19 @@ async def request_trace(
         _logger().warning("langfuse.request_trace_start_failed", error=_error(exc))
         yield LangfuseObservation(None)
         return
+
+    propagate_cm = _propagate_trace_attributes(
+        user_id=user_id,
+        session_id=resolved_session_id,
+        tags=tags,
+    )
+    propagation_active = False
+    if propagate_cm is not None:
+        try:
+            propagate_cm.__enter__()
+            propagation_active = True
+        except Exception as exc:
+            _logger().warning("langfuse.propagate_attributes_failed", error=_error(exc))
 
     token = _OBSERVATION.set(root)
     handle = LangfuseObservation(root)
@@ -171,10 +199,44 @@ async def request_trace(
             raise
     finally:
         _OBSERVATION.reset(token)
+        if propagation_active:
+            with suppress(Exception):
+                propagate_cm.__exit__(*exc_info)  # type: ignore[union-attr]
         with suppress(Exception):
             root_cm.__exit__(*exc_info)
         if settings.flush_on_request:
             flush()
+
+
+def _propagate_trace_attributes(
+    *,
+    user_id: str | None,
+    session_id: str | None,
+    tags: list[str] | None,
+) -> Any | None:
+    """Return the ``propagate_attributes`` context manager, or None if nothing to set.
+
+    ``propagate_attributes`` is a top-level helper in ``langfuse`` (not a
+    method on the client) — it must be imported from the package. Returns
+    None when there is nothing to propagate, when the SDK is too old to
+    expose the helper, or when constructing it raises.
+    """
+    if user_id is None and session_id is None and not tags:
+        return None
+    try:
+        from langfuse import propagate_attributes as _propagate  # noqa: PLC0415
+    except ImportError as exc:
+        _logger().warning("langfuse.propagate_attributes_missing", error=_error(exc))
+        return None
+    try:
+        return _propagate(
+            user_id=user_id,
+            session_id=session_id,
+            tags=tags or None,
+        )
+    except Exception as exc:
+        _logger().warning("langfuse.propagate_attributes_unavailable", error=_error(exc))
+        return None
 
 
 @asynccontextmanager

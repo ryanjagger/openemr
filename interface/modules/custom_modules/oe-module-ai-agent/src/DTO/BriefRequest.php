@@ -19,11 +19,20 @@ final readonly class BriefRequest
         public string $fhirBaseUrl,
         public string $bearerToken,
         public string $requestId,
+        public ?string $userId = null,
+        public ?string $sessionId = null,
     ) {
     }
 
     /**
-     * @return array{patient_uuid: string, fhir_base_url: string, bearer_token: string, request_id: string}
+     * @return array{
+     *     patient_uuid: string,
+     *     fhir_base_url: string,
+     *     bearer_token: string,
+     *     request_id: string,
+     *     user_id: string|null,
+     *     session_id: string|null
+     * }
      */
     public function toArray(): array
     {
@@ -32,6 +41,8 @@ final readonly class BriefRequest
             'fhir_base_url' => $this->fhirBaseUrl,
             'bearer_token' => $this->bearerToken,
             'request_id' => $this->requestId,
+            'user_id' => $this->userId,
+            'session_id' => $this->sessionId,
         ];
     }
 }

@@ -59,12 +59,17 @@ class BriefRequest(BaseModel):
 
     ``patient_uuid`` is the FHIR-format identifier (UUID), already resolved
     from OpenEMR's numeric ``pid`` by ``BriefController`` before dispatch.
+    ``user_id`` is the OpenEMR user UUID of the clinician who triggered the
+    request. Optional so older PHP callers keep working; when present it is
+    propagated to Langfuse so per-user analytics work.
     """
 
     patient_uuid: str
     fhir_base_url: str
     bearer_token: SecretStr
     request_id: str
+    user_id: str | None = None
+    session_id: str | None = None
 
 
 class BriefResponse(BaseModel):

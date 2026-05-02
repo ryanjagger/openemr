@@ -139,6 +139,8 @@ final class BriefController
             fhirBaseUrl: $fhirBaseUrl,
             bearerToken: $bearerToken,
             requestId: $requestId,
+            userId: $userUuid,
+            sessionId: $this->resolveSessionId(),
         );
 
         $startedAt = microtime(true);
@@ -288,6 +290,24 @@ final class BriefController
         }
 
         return 0;
+    }
+
+    /**
+     * Hash the PHP session id for the Langfuse session tag.
+     *
+     * Why hash: ``session_id()`` is the live cookie token; sending it to an
+     * external observability tool would treat it like a credential. The hash
+     * is stable for the lifetime of one OpenEMR login, which is exactly the
+     * grouping Langfuse's "session" concept expects.
+     */
+    private function resolveSessionId(): ?string
+    {
+        $rawSessionId = session_id();
+        if (!is_string($rawSessionId) || $rawSessionId === '') {
+            return null;
+        }
+
+        return substr(hash('sha256', $rawSessionId), 0, 32);
     }
 
     private function resolveUserUuid(int $userId): ?string

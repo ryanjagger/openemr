@@ -24,6 +24,8 @@ final readonly class ChatRequest
         public string $requestId,
         public ?string $conversationId,
         public array $messages,
+        public ?string $userId = null,
+        public ?string $sessionId = null,
     ) {
     }
 
@@ -34,7 +36,9 @@ final readonly class ChatRequest
      *     bearer_token: string,
      *     request_id: string,
      *     conversation_id: string|null,
-     *     messages: list<array{role: string, content: string}>
+     *     messages: list<array{role: string, content: string}>,
+     *     user_id: string|null,
+     *     session_id: string|null
      * }
      */
     public function toArray(): array
@@ -49,6 +53,8 @@ final readonly class ChatRequest
                 static fn (ChatMessage $m): array => $m->toArray(),
                 $this->messages,
             ),
+            'user_id' => $this->userId,
+            'session_id' => $this->sessionId,
         ];
     }
 }

@@ -100,6 +100,8 @@ async def brief(request: BriefRequest) -> BriefResponse:
         action="brief.read",
         patient_uuid=request.patient_uuid,
         model=model_id,
+        user_id=request.user_id,
+        session_id=request.session_id,
     )
     try:
         async with use_trace() as trace, langfuse_request_trace(
@@ -112,6 +114,8 @@ async def brief(request: BriefRequest) -> BriefResponse:
                 "patient_uuid": request.patient_uuid,
                 "fhir_base_url": request.fhir_base_url,
             },
+            user_id=request.user_id,
+            session_id=request.session_id,
             tags=["brief", "demo"],
         ) as lf_trace:
             try:
@@ -184,6 +188,8 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
         action="chat.turn",
         patient_uuid=request.patient_uuid,
         model=model_id,
+        user_id=request.user_id,
+        session_id=request.session_id,
     )
     try:
         async with use_trace() as trace, langfuse_request_trace(
@@ -198,6 +204,8 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
                 "conversation_id": entry.conversation_id,
                 "messages": [message.model_dump(mode="json") for message in request.messages],
             },
+            user_id=request.user_id,
+            session_id=request.session_id,
             tags=["chat", "demo"],
         ) as lf_trace:
             try:

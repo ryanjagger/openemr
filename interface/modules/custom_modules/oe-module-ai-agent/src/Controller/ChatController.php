@@ -171,6 +171,7 @@ final class ChatController
             requestId: $requestId,
             conversationId: $conversationId,
             messages: $messages,
+            userId: $userUuid,
         );
 
         $startedAt = microtime(true);
