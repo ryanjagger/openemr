@@ -1,16 +1,18 @@
-# Patient-brief evals
+# Agent evals
 
-Live-LLM eval harness for the agent. Not a CI test — calls the real model,
-costs API credits, and is non-deterministic. Run before merging prompt or
-model changes.
+Live-LLM eval harnesses for the brief and chat agents. Not CI tests — they
+call the real model, cost API credits, and are non-deterministic. Run before
+merging prompt or model changes.
 
 The fixtures form a **golden set** in the sense of *Production Evals
 Cookbook, Stage 1*: hand-curated input/output pairs that define what
 "correct" looks like for the agent. Failures here mean either a real
-regression or a fixture that needs updating — not both at once. Twelve
-fixtures today, run end-to-end in ~60 seconds against Sonnet.
+regression or a fixture that needs updating — not both at once.
 
-## Run
+## Brief evals
+
+The patient-brief runner uses `evals/fixtures/*.json`; each fixture is a
+FHIR snapshot plus loose expectations over verified brief items.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -34,12 +36,12 @@ uv run python evals/run_eval.py --label spot-check --only 0006 --only 0008
 uv run python evals/run_eval.py --label freetext-on --enable-freetext-types
 ```
 
-Outputs land in `evals/runs/{ts}_{label}.jsonl` (gitignored). One JSON
+Brief outputs land in `evals/runs/{ts}_{label}.jsonl` (gitignored). One JSON
 object per fixture with: model, items emitted vs verified, drop counts
 keyed by verifier rule, type distribution, expectations check, and the
 full item / failure payloads.
 
-## Inspect a run
+### Inspect a brief run
 
 ```bash
 # items per fixture
@@ -60,7 +62,7 @@ jq -r '.fixture_id as $id
     | [$id, .key] | @tsv' evals/runs/*baseline.jsonl
 ```
 
-## Authoring fixtures
+### Authoring brief fixtures
 
 Files in `evals/fixtures/*.json` — each one a FHIR snapshot keyed by
 resource type. The runner mounts respx routes per resource type; query
@@ -102,6 +104,91 @@ negation, drug-allergy conflict). Today: `0002_negation_in_notes` and
 Expectations are loose by design. The LLM is non-deterministic; assert on
 shape, citation IDs, and key clinical terms — not exact paraphrase.
 
+## Chat evals
+
+The chat runner uses `evals/chat_fixtures/*.json`; each fixture has a
+FHIR snapshot plus a `turns` list. Turns run sequentially inside a fixture,
+so later turns receive the prior user/assistant history and the graph's
+cached FHIR rows. This lets the golden set check both tool routing and
+multi-turn cache reuse.
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# default: claude-sonnet-4-6, all chat fixtures
+uv run python evals/run_chat_eval.py --label baseline
+
+# debug the harness without spending credits
+uv run python evals/run_chat_eval.py --label harness-check --provider mock
+
+# run a subset
+uv run python evals/run_chat_eval.py --label only-labs --only chat_0002
+```
+
+Chat outputs land in `evals/runs/{ts}_chat_{label}.jsonl` (gitignored). One
+JSON object per turn includes: narrative, emitted vs verified facts, drop
+counts, tool calls, LLM iterations, token usage, cache rows before/after,
+expectation checks, full fact/failure payloads, and trace steps.
+
+### Inspect a chat run
+
+```bash
+# facts and tools per turn
+jq -r '[.fixture_id, .turn_index, .facts_verified, (.tool_calls | join(","))] | @tsv' \
+    evals/runs/*chat_baseline.jsonl
+
+# turns whose expectations failed
+jq 'select(.known_limitation == false and (.expectations_met | to_entries | any(.value == false)))
+    | {fixture_id, turn_index, expectations_met, narrative, tool_calls}' \
+    evals/runs/*chat_baseline.jsonl
+
+# cache reuse check
+jq -r '[.fixture_id, .turn_index, .cache_rows_before, .cache_rows_after, .tool_call_count] | @tsv' \
+    evals/runs/*chat_baseline.jsonl
+```
+
+### Authoring chat fixtures
+
+Files in `evals/chat_fixtures/*.json` use this shape:
+
+```json
+{
+  "label": "human description",
+  "turns": [
+    {
+      "label": "turn description",
+      "user": "What medications is she on?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": ["medication"],
+        "expected_citations": ["med-lisinopril"],
+        "expected_tools_called": ["get_active_medications"]
+      }
+    }
+  ],
+  "fhir": {
+    "MedicationRequest": { "resourceType": "Bundle", "entry": [] }
+  }
+}
+```
+
+Supported chat expectation keys:
+
+| Key | Meaning |
+|---|---|
+| `min_verified_facts` / `max_verified_facts` | Fact count bounds after verification |
+| `expected_fact_types_present` / `expected_fact_types_absent` | Fact type presence/absence |
+| `expected_citations` / `forbidden_citations` | Citation resource IDs that must/must not appear |
+| `narrative_must_contain` / `narrative_must_not_contain` | Case-insensitive substrings in final narrative |
+| `facts_must_contain` / `facts_must_not_contain` | Case-insensitive substrings across verified fact text |
+| `expected_drop_rules` | `{rule_name: min_count}` verifier drop counts |
+| `expected_tools_called` / `forbidden_tools_called` | Tool names that must/must not be called |
+| `max_tool_calls` | Upper bound on total tool calls for the turn |
+| `expected_tool_call_counts` | Exact per-tool call counts |
+
+Prefer chat evals for behavior that depends on the tool loop, user question,
+or cached context. Keep deterministic verifier-only behavior in `tests/`.
+
 ## When to add a golden case
 
 - A real chart in production produced the wrong brief. Reduce it to a
@@ -111,6 +198,8 @@ shape, citation IDs, and key clinical terms — not exact paraphrase.
   cleanly.
 - A verifier rule changes (threshold, scope). Add or update a fixture
   that pins the expected behavior.
+- A chat turn picked the wrong tool, hallucinated from an empty result, or
+  failed to reuse cached context on a follow-up.
 
 ## When *not* to add a golden case
 

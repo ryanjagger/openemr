@@ -1,0 +1,36 @@
+{
+  "label": "single-turn immunization question routes to immunization tool",
+  "turns": [
+    {
+      "label": "immunizations",
+      "user": "Can you give me this patient's immunization records?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": ["immunization"],
+        "expected_citations": ["imm-flu"],
+        "expected_tools_called": ["get_immunizations"],
+        "forbidden_tools_called": ["get_active_medications", "get_active_problems"],
+        "narrative_must_contain": ["influenza"],
+        "facts_must_contain": ["influenza"]
+      }
+    }
+  ],
+  "fhir": {
+    "Immunization": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Immunization",
+            "id": "imm-flu",
+            "patient": { "reference": "Patient/eval-patient-fixture" },
+            "status": "completed",
+            "vaccineCode": { "text": "Influenza vaccine" },
+            "occurrenceDateTime": "{{TODAY-120D}}",
+            "meta": { "lastUpdated": "{{TODAY-120D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    }
+  }
+}

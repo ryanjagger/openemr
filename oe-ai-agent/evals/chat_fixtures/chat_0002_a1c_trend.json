@@ -1,0 +1,50 @@
+{
+  "label": "single-turn A1c trend question routes to lab trend tool",
+  "turns": [
+    {
+      "label": "a1c trend",
+      "user": "How has her A1c been trending?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": ["lab_result"],
+        "expected_citations": ["obs-a1c-latest"],
+        "expected_tools_called": ["get_lab_trend"],
+        "narrative_must_contain": ["a1c", "7.2"],
+        "facts_must_contain": ["7.2"]
+      }
+    }
+  ],
+  "fhir": {
+    "Observation": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Observation",
+            "id": "obs-a1c-latest",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "final",
+            "category": [{ "coding": [{ "code": "laboratory", "display": "Laboratory" }] }],
+            "code": { "text": "Hemoglobin A1c" },
+            "valueQuantity": { "value": 7.2, "unit": "%" },
+            "effectiveDateTime": "{{TODAY-45D}}",
+            "meta": { "lastUpdated": "{{TODAY-45D}}T00:00:00+00:00" }
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "Observation",
+            "id": "obs-a1c-prior",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "final",
+            "category": [{ "coding": [{ "code": "laboratory", "display": "Laboratory" }] }],
+            "code": { "text": "Hemoglobin A1c" },
+            "valueQuantity": { "value": 8.1, "unit": "%" },
+            "effectiveDateTime": "{{TODAY-180D}}",
+            "meta": { "lastUpdated": "{{TODAY-180D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    }
+  }
+}

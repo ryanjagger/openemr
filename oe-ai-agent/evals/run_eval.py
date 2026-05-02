@@ -23,16 +23,35 @@ import argparse
 import asyncio
 import json
 import os
-import re
 import sys
 import time
 from collections import Counter
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import httpx
 import respx
+
+try:
+    from evals.common import (
+        EVAL_FHIR_BASE,
+        EVAL_PATIENT_UUID,
+        default_output_path,
+        drop_counts,
+        install_fhir_routes,
+        load_fixtures,
+        type_counts,
+    )
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    from common import (  # type: ignore[no-redef]
+        EVAL_FHIR_BASE,
+        EVAL_PATIENT_UUID,
+        default_output_path,
+        drop_counts,
+        install_fhir_routes,
+        load_fixtures,
+        type_counts,
+    )
 
 from oe_ai_agent.agent.graph import build_graph
 from oe_ai_agent.agent.state import AgentState
@@ -41,11 +60,6 @@ from oe_ai_agent.llm import LiteLLMClient, LlmClient, MockLlmClient
 from oe_ai_agent.schemas.brief import BriefItem, BriefItemType, VerificationFailure
 
 DEFAULT_FIXTURES_DIR = Path(__file__).parent / "fixtures"
-DEFAULT_OUTPUT_DIR = Path(__file__).parent / "runs"
-EVAL_FHIR_BASE = "http://eval-fhir.local/apis/default/fhir"
-EVAL_PATIENT_UUID = "eval-patient-fixture"
-
-_DATE_TOKEN = re.compile(r"\{\{TODAY([+-]\d+)D\}\}")
 
 
 def main() -> int:
@@ -72,7 +86,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    fixtures = _load_fixtures(args.fixtures, only=args.only)
+    fixtures = load_fixtures(args.fixtures, only=args.only)
     if not fixtures:
         print(f"no fixtures found under {args.fixtures}", file=sys.stderr)
         return 1
@@ -80,7 +94,7 @@ def main() -> int:
     llm = _build_llm(args.provider, args.model)
     allowed_types = _allowed_types(args.enable_freetext_types)
 
-    output_path = args.output or _default_output_path(args.label)
+    output_path = args.output or default_output_path(args.label)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(
@@ -141,39 +155,6 @@ def _allowed_types(enable_freetext: bool) -> frozenset[BriefItemType]:
     return frozenset(BriefItemType) - FREETEXT_ITEM_TYPES
 
 
-def _default_output_path(label: str) -> Path:
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", label)
-    stamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
-    return DEFAULT_OUTPUT_DIR / f"{stamp}_{safe}.jsonl"
-
-
-def _load_fixtures(
-    fixtures_dir: Path,
-    only: list[str] | None = None,
-) -> list[dict[str, Any]]:
-    paths = sorted(fixtures_dir.glob("*.json"))
-    selected: list[dict[str, Any]] = []
-    for path in paths:
-        if only and not any(token in path.stem for token in only):
-            continue
-        raw = path.read_text(encoding="utf-8")
-        rendered = _substitute_date_tokens(raw)
-        data = json.loads(rendered)
-        data["__id__"] = path.stem
-        selected.append(data)
-    return selected
-
-
-def _substitute_date_tokens(text: str) -> str:
-    today = datetime.now(tz=UTC).date()
-
-    def replace(match: re.Match[str]) -> str:
-        offset_days = int(match.group(1))
-        return (today + timedelta(days=offset_days)).isoformat()
-
-    return _DATE_TOKEN.sub(replace, text)
-
-
 async def _run_one(
     fixture: dict[str, Any],
     llm: LlmClient,
@@ -197,7 +178,7 @@ async def _run_one(
         # traffic that bypasses the cached client) reach the real network
         # instead of raising. Only the FHIR base is mocked.
         with respx.mock(assert_all_called=False, assert_all_mocked=False) as router:
-            _install_fhir_routes(router, fixture["fhir"])
+            install_fhir_routes(router, fixture["fhir"])
             graph = build_graph(llm, allowed_types=allowed_types)
             final = await graph.ainvoke(  # type: ignore[attr-defined]
                 AgentState(
@@ -226,35 +207,13 @@ async def _run_one(
         "error": error,
         "items_emitted": len(parsed_items),
         "items_verified": len(verified_items),
-        "drop_count_by_rule": _drop_counts(failures),
-        "type_counts_verified": _type_counts(verified_items),
+        "drop_count_by_rule": drop_counts(failures),
+        "type_counts_verified": type_counts(verified_items),
         "duration_ms": duration_ms,
         "expectations_met": _check_expectations(verified_items, failures, expectations),
         "items": [_item_to_dict(i) for i in verified_items],
         "failures": [f.model_dump() for f in failures],
     }
-
-
-def _install_fhir_routes(router: respx.MockRouter, fhir: dict[str, Any]) -> None:
-    for resource_type, body in fhir.items():
-        if resource_type == "Patient":
-            router.get(f"{EVAL_FHIR_BASE}/Patient/{EVAL_PATIENT_UUID}").mock(
-                return_value=httpx.Response(200, json=body),
-            )
-            continue
-        router.get(f"{EVAL_FHIR_BASE}/{resource_type}").mock(
-            return_value=httpx.Response(200, json=body),
-        )
-
-
-def _drop_counts(failures: list[VerificationFailure]) -> dict[str, int]:
-    counter = Counter(f.rule for f in failures)
-    return dict(counter)
-
-
-def _type_counts(items: list[BriefItem]) -> dict[str, int]:
-    counter = Counter(item.type.value for item in items)
-    return dict(counter)
 
 
 def _item_to_dict(item: BriefItem) -> dict[str, Any]:

@@ -1,0 +1,22 @@
+{
+  "label": "empty allergy bundle should not hallucinate allergy facts",
+  "turns": [
+    {
+      "label": "empty allergies",
+      "user": "Does this patient have any allergies documented?",
+      "expectations": {
+        "max_verified_facts": 0,
+        "expected_tools_called": ["get_allergies"],
+        "forbidden_citations": ["allergy-fake"],
+        "narrative_must_not_contain": ["penicillin", "lisinopril"],
+        "facts_must_not_contain": ["penicillin", "lisinopril"]
+      }
+    }
+  ],
+  "fhir": {
+    "AllergyIntolerance": {
+      "resourceType": "Bundle",
+      "entry": []
+    }
+  }
+}

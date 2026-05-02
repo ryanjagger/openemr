@@ -1,0 +1,46 @@
+{
+  "label": "second medication follow-up should reuse cached context",
+  "turns": [
+    {
+      "label": "first medication turn",
+      "user": "What medications is she on?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": ["medication"],
+        "expected_citations": ["med-lisinopril"],
+        "expected_tools_called": ["get_active_medications"],
+        "facts_must_contain": ["lisinopril"]
+      }
+    },
+    {
+      "label": "follow-up dose turn",
+      "user": "What dose of lisinopril is listed?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": ["medication"],
+        "expected_citations": ["med-lisinopril"],
+        "max_tool_calls": 0,
+        "narrative_must_contain": ["10 mg"],
+        "facts_must_contain": ["10 mg"]
+      }
+    }
+  ],
+  "fhir": {
+    "MedicationRequest": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-lisinopril",
+            "subject": { "reference": "Patient/eval-patient-fixture" },
+            "status": "active",
+            "medicationCodeableConcept": { "text": "Lisinopril 10 mg oral tablet" },
+            "authoredOn": "{{TODAY-30D}}",
+            "meta": { "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00" }
+          }
+        }
+      ]
+    }
+  }
+}
