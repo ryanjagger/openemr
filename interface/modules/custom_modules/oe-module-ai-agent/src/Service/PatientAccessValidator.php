@@ -32,7 +32,11 @@ final class PatientAccessValidator
             return false;
         }
 
-        if (!AclMain::aclCheckCore('patients', 'demo', '', 'view')) {
+        // Mirror demographics.php's chart-view gate (interface/patient_file/summary/demographics.php:1053):
+        // call without a return_value so any allow-row on patients/demo (view, write, addonly, ...) grants
+        // read. Requiring the literal `view` row excluded groups like Physicians whose ACL row carries
+        // `write` instead, blocking every non-admin user.
+        if (!AclMain::aclCheckCore('patients', 'demo')) {
             return false;
         }
 
