@@ -53,7 +53,7 @@ async def test_registry_exposes_new_patient_visibility_tools() -> None:
         (
             "get_active_problems",
             "Condition",
-            {"patient": PATIENT, "clinical-status": "active"},
+            {"patient": PATIENT, "category": "problem-list-item"},
         ),
         (
             "get_active_medications",
@@ -408,3 +408,63 @@ async def test_new_resource_tools_search_expected_fhir_resources(
     assert captured.get("status") == "completed"
     assert captured.get(text_param) == "example"
     assert rows[0].resource_type == resource_type
+
+
+@pytest.mark.asyncio
+async def test_get_active_problems_drops_inactive_clinical_status() -> None:
+    def _capture(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=_bundle(
+                {
+                    "resourceType": "Condition",
+                    "id": "active-1",
+                    "subject": {"reference": f"Patient/{PATIENT}"},
+                    "clinicalStatus": {
+                        "coding": [
+                            {
+                                "system": (
+                                    "http://terminology.hl7.org/CodeSystem/condition-clinical"
+                                ),
+                                "code": "active",
+                            }
+                        ]
+                    },
+                    "code": {"text": "Chronic pain"},
+                    "meta": {"lastUpdated": "2026-03-01T00:00:00+00:00"},
+                },
+                {
+                    "resourceType": "Condition",
+                    "id": "inactive-1",
+                    "subject": {"reference": f"Patient/{PATIENT}"},
+                    "clinicalStatus": {
+                        "coding": [
+                            {
+                                "system": (
+                                    "http://terminology.hl7.org/CodeSystem/condition-clinical"
+                                ),
+                                "code": "resolved",
+                            }
+                        ]
+                    },
+                    "code": {"text": "Stress"},
+                    "meta": {"lastUpdated": "2026-03-01T00:00:00+00:00"},
+                },
+            ),
+        )
+
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{FHIR_BASE}/Condition").mock(side_effect=_capture)
+        async with FhirClient(base_url=FHIR_BASE, bearer_token="t") as client:
+            rows, error, _payload = await execute_chat_tool(
+                LlmToolCall(
+                    tool_call_id="t1",
+                    name="get_active_problems",
+                    arguments={},
+                ),
+                client,
+                PATIENT,
+            )
+
+    assert error is None
+    assert [row.resource_id for row in rows] == ["active-1"]
