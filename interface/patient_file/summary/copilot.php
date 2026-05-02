@@ -75,11 +75,6 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
     ?>
     <div class="row">
         <div class="col-sm-12">
-            <?php echo $oemr_ui->pageHeading() . "\r\n"; ?>
-        </div>
-    </div>
-    <div class="row">
-        <div class="col-sm-12">
             <section id="oe-ai-agent-chat-panel"
                 data-pid="<?php echo attr((string) $pid); ?>"
                 data-csrf="<?php echo attr($apiCsrfToken); ?>">
