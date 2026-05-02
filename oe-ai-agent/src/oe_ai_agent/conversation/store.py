@@ -107,16 +107,17 @@ class ConversationStore:
         conversation_id: str,
         rows: list[TypedRow],
     ) -> None:
-        """Append rows to the cached context, deduplicating by resource_id."""
+        """Append rows to the cached context, deduplicating by ResourceType/id."""
         async with self._lock:
             entry = self._entries.get(conversation_id)
             if entry is None:
                 raise KeyError(conversation_id)
-            seen = {r.resource_id for r in entry.cached_context}
+            seen = {(r.resource_type, r.resource_id) for r in entry.cached_context}
             for row in rows:
-                if row.resource_id not in seen:
+                key = (row.resource_type, row.resource_id)
+                if key not in seen:
                     entry.cached_context.append(row)
-                    seen.add(row.resource_id)
+                    seen.add(key)
 
     async def append_message(
         self,

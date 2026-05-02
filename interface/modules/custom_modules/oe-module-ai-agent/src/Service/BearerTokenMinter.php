@@ -37,10 +37,13 @@ final class BearerTokenMinter
     /** @var list<string> */
     public const FHIR_READ_SCOPES = [
         'user/Patient.read',
+        'user/Appointment.read',
+        'user/CarePlan.read',
         'user/Condition.read',
         'user/MedicationRequest.read',
         'user/AllergyIntolerance.read',
         'user/Encounter.read',
+        'user/Goal.read',
         'user/Observation.read',
         'user/DocumentReference.read',
         'user/ServiceRequest.read',

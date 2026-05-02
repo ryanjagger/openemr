@@ -30,6 +30,7 @@ class ChatMessage(BaseModel):
 
 
 class ChatFactType(StrEnum):
+    DEMOGRAPHICS = "demographics"
     MEDICATION = "medication"
     MEDICATION_CHANGE = "medication_change"
     PROBLEM = "problem"

@@ -12,9 +12,9 @@ from oe_ai_agent.schemas.tool_results import TypedRow
 PATIENT = "patient-uuid-1"
 
 
-def _row(rid: str) -> TypedRow:
+def _row(rid: str, resource_type: str = "MedicationRequest") -> TypedRow:
     return TypedRow(
-        resource_type="MedicationRequest",
+        resource_type=resource_type,
         resource_id=rid,
         patient_id=PATIENT,
         last_updated=datetime.now(tz=UTC),
@@ -60,12 +60,20 @@ async def test_increment_turn_blocks_at_cap() -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_context_dedupes_by_resource_id() -> None:
+async def test_update_context_dedupes_by_resource_type_and_id() -> None:
     store = ConversationStore()
     entry = await store.get_or_create(None, PATIENT)
     await store.update_context(entry.conversation_id, [_row("a"), _row("b")])
-    await store.update_context(entry.conversation_id, [_row("b"), _row("c")])
-    assert [r.resource_id for r in entry.cached_context] == ["a", "b", "c"]
+    await store.update_context(
+        entry.conversation_id,
+        [_row("b"), _row("b", "Observation"), _row("c")],
+    )
+    assert [(r.resource_type, r.resource_id) for r in entry.cached_context] == [
+        ("MedicationRequest", "a"),
+        ("MedicationRequest", "b"),
+        ("Observation", "b"),
+        ("MedicationRequest", "c"),
+    ]
 
 
 @pytest.mark.asyncio

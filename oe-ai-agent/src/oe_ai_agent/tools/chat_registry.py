@@ -8,6 +8,12 @@ from datetime import date
 
 from oe_ai_agent.llm.client import LlmToolCall
 from oe_ai_agent.schemas.tool_results import ToolError, TypedRow
+from oe_ai_agent.tools.active_medications import get_active_medications
+from oe_ai_agent.tools.active_problems import get_active_problems
+from oe_ai_agent.tools.allergies import get_allergies
+from oe_ai_agent.tools.appointments import get_appointments
+from oe_ai_agent.tools.care_plan_goals import get_care_plan_goals
+from oe_ai_agent.tools.demographics import get_demographics
 from oe_ai_agent.tools.fhir_client import FhirClient, FhirError
 from oe_ai_agent.tools.immunizations import get_immunizations
 from oe_ai_agent.tools.lab_trend import get_lab_trend
@@ -15,6 +21,8 @@ from oe_ai_agent.tools.medication_history import get_medication_history
 from oe_ai_agent.tools.observation_search import get_observations
 from oe_ai_agent.tools.orders import get_orders
 from oe_ai_agent.tools.procedures import get_procedures
+from oe_ai_agent.tools.recent_encounters import get_recent_encounters
+from oe_ai_agent.tools.recent_notes import get_recent_notes
 
 ToolHandler = Callable[[FhirClient, str, dict[str, object]], Awaitable[list[TypedRow]]]
 DEFAULT_LIMIT = 50
@@ -37,6 +45,66 @@ class ChatToolSpec:
                 "parameters": self.parameters,
             },
         }
+
+
+async def _handle_demographics(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    _reject_arguments(arguments)
+    return await get_demographics(client, patient_uuid)
+
+
+async def _handle_active_problems(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    _reject_arguments(arguments)
+    return await get_active_problems(client, patient_uuid)
+
+
+async def _handle_active_medications(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    _reject_arguments(arguments)
+    return await get_active_medications(client, patient_uuid)
+
+
+async def _handle_allergies(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    _reject_arguments(arguments)
+    return await get_allergies(client, patient_uuid)
+
+
+async def _handle_recent_encounters(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    return await get_recent_encounters(
+        client,
+        patient_uuid,
+        limit=_optional_limit(arguments.get("limit")),
+    )
+
+
+async def _handle_recent_notes(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    return await get_recent_notes(
+        client,
+        patient_uuid,
+        limit=_optional_limit(arguments.get("limit")),
+    )
 
 
 async def _handle_lab_trend(
@@ -132,6 +200,38 @@ async def _handle_immunizations(
     )
 
 
+async def _handle_appointments(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    return await get_appointments(
+        client,
+        patient_uuid,
+        since=_optional_iso_date(arguments.get("since"), "since"),
+        limit=_optional_limit(arguments.get("limit")),
+    )
+
+
+async def _handle_care_plan_goals(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    return await get_care_plan_goals(
+        client,
+        patient_uuid,
+        category=_optional_str(arguments.get("category")),
+        since=_optional_iso_date(arguments.get("since"), "since"),
+        limit=_optional_limit(arguments.get("limit")),
+    )
+
+
+def _reject_arguments(arguments: dict[str, object]) -> None:
+    if arguments:
+        raise ValueError("this tool does not accept arguments")
+
+
 def _optional_str(value: object) -> str | None:
     if value is None or value == "":
         return None
@@ -179,6 +279,79 @@ def _dated_search_properties(
 
 
 CHAT_TOOL_REGISTRY: dict[str, ChatToolSpec] = {
+    "get_demographics": ChatToolSpec(
+        name="get_demographics",
+        description=(
+            "Read the patient's Patient resource for basic demographics such "
+            "as name, birth date, and administrative gender."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        handler=_handle_demographics,
+    ),
+    "get_active_problems": ChatToolSpec(
+        name="get_active_problems",
+        description="Fetch the patient's active Condition problem list entries.",
+        parameters={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        handler=_handle_active_problems,
+    ),
+    "get_active_medications": ChatToolSpec(
+        name="get_active_medications",
+        description="Fetch the patient's active MedicationRequest entries.",
+        parameters={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        handler=_handle_active_medications,
+    ),
+    "get_allergies": ChatToolSpec(
+        name="get_allergies",
+        description="Fetch the patient's AllergyIntolerance entries.",
+        parameters={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        handler=_handle_allergies,
+    ),
+    "get_recent_encounters": ChatToolSpec(
+        name="get_recent_encounters",
+        description="Fetch the patient's most recent Encounter records.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Optional result limit from 1 to 100.",
+                },
+            },
+            "additionalProperties": False,
+        },
+        handler=_handle_recent_encounters,
+    ),
+    "get_recent_notes": ChatToolSpec(
+        name="get_recent_notes",
+        description="Fetch the patient's most recent clinical-note DocumentReferences.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Optional result limit from 1 to 100.",
+                },
+            },
+            "additionalProperties": False,
+        },
+        handler=_handle_recent_notes,
+    ),
     "get_lab_trend": ChatToolSpec(
         name="get_lab_trend",
         description=(
@@ -300,6 +473,36 @@ CHAT_TOOL_REGISTRY: dict[str, ChatToolSpec] = {
         },
         handler=_handle_immunizations,
     ),
+    "get_appointments": ChatToolSpec(
+        name="get_appointments",
+        description="Fetch the patient's Appointment records, newest first by appointment date.",
+        parameters={
+            "type": "object",
+            "properties": _dated_search_properties(extra={}),
+            "additionalProperties": False,
+        },
+        handler=_handle_appointments,
+    ),
+    "get_care_plan_goals": ChatToolSpec(
+        name="get_care_plan_goals",
+        description=(
+            "Fetch the patient's CarePlan and Goal resources. Use for care "
+            "plan, goal, target, or planned intervention questions."
+        ),
+        parameters={
+            "type": "object",
+            "properties": _dated_search_properties(
+                extra={
+                    "category": {
+                        "type": "string",
+                        "description": "Optional CarePlan category filter.",
+                    },
+                }
+            ),
+            "additionalProperties": False,
+        },
+        handler=_handle_care_plan_goals,
+    ),
 }
 
 
@@ -354,4 +557,3 @@ async def execute_chat_tool(
             ],
         },
     )
-

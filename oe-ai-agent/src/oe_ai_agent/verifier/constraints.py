@@ -28,6 +28,7 @@ ALLOWED_TABLES_FOR_TYPE: dict[BriefItemType, frozenset[str]] = {
 }
 
 CHAT_ALLOWED_TABLES_FOR_TYPE: dict[ChatFactType, frozenset[str]] = {
+    ChatFactType.DEMOGRAPHICS: frozenset({"Patient"}),
     ChatFactType.MEDICATION: frozenset({"MedicationRequest"}),
     ChatFactType.MEDICATION_CHANGE: frozenset({"MedicationRequest", "DocumentReference"}),
     ChatFactType.PROBLEM: frozenset({"Condition"}),
@@ -58,6 +59,7 @@ MAX_AGE_DAYS_FOR_TYPE: dict[BriefItemType, int | None] = {
 }
 
 CHAT_MAX_AGE_DAYS_FOR_TYPE: dict[ChatFactType, int | None] = {
+    ChatFactType.DEMOGRAPHICS: None,
     ChatFactType.MEDICATION: 365,
     ChatFactType.MEDICATION_CHANGE: 180,
     ChatFactType.PROBLEM: None,

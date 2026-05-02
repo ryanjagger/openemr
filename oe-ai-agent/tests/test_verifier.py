@@ -13,6 +13,7 @@ import pytest
 
 from oe_ai_agent.schemas.brief import BriefItem, BriefItemType, Citation
 from oe_ai_agent.schemas.tool_results import TypedRow
+from oe_ai_agent.tools._common import to_typed_row
 from oe_ai_agent.verifier import verify_items
 from oe_ai_agent.verifier.tier1_structural import (
     check_citations_exist,
@@ -79,10 +80,46 @@ def test_citations_exist_fail_when_id_fabricated() -> None:
     assert failure.rule == "tier1_citations_exist"
 
 
+def test_citations_exist_fail_when_type_differs_even_if_id_matches() -> None:
+    rows = [_row("AllergyIntolerance", "shared-id")]
+    item = _item(
+        BriefItemType.MED_CURRENT,
+        "On Lisinopril",
+        [("MedicationRequest", "shared-id")],
+    )
+    failure = check_citations_exist(item, rows)
+    assert failure is not None
+    assert failure.rule == "tier1_citations_exist"
+
+
 def test_patient_binding_fail_when_other_patient() -> None:
     rows = [_row("MedicationRequest", "med-1", patient_id="other-patient")]
     item = _item(BriefItemType.MED_CURRENT, "On Lisinopril", [("MedicationRequest", "med-1")])
     failure = check_patient_binding(item, rows, expected_patient_uuid=PATIENT)
+    assert failure is not None
+    assert failure.rule == "tier1_patient_binding"
+
+
+def test_patient_binding_fail_when_appointment_participant_is_other_patient() -> None:
+    row = to_typed_row(
+        "get_appointments",
+        {
+            "resourceType": "Appointment",
+            "id": "appt-1",
+            "status": "booked",
+            "participant": [
+                {"actor": {"reference": "Practitioner/prac-1"}},
+                {"actor": {"reference": "Patient/other-patient"}},
+            ],
+            "meta": {"lastUpdated": "2026-04-29T00:00:00+00:00"},
+        },
+        PATIENT,
+    )
+    item = _item(BriefItemType.RECENT_EVENT, "Booked appointment", [("Appointment", "appt-1")])
+
+    failure = check_patient_binding(item, [row], expected_patient_uuid=PATIENT)
+
+    assert row.patient_id == "other-patient"
     assert failure is not None
     assert failure.rule == "tier1_patient_binding"
 

@@ -30,10 +30,10 @@ def check_citations_exist(
     tool_rows: list[TypedRow],
     item_index: int | None = None,
 ) -> VerificationFailure | None:
-    """Every citation.resource_id must appear in the rows the model saw."""
-    seen_ids = {row.resource_id for row in tool_rows}
+    """Every cited ResourceType/id pair must appear in the rows the model saw."""
+    seen_keys = {_row_key(row) for row in tool_rows}
     for citation in item.citations:
-        if citation.resource_id not in seen_ids:
+        if _citation_key(citation) not in seen_keys:
             return VerificationFailure(
                 rule="tier1_citations_exist",
                 detail=(
@@ -52,9 +52,9 @@ def check_patient_binding(
     item_index: int | None = None,
 ) -> VerificationFailure | None:
     """Each cited row's patient_id must equal the request's patient_uuid."""
-    rows_by_id = {row.resource_id: row for row in tool_rows}
+    rows_by_key = {_row_key(row): row for row in tool_rows}
     for citation in item.citations:
-        row = rows_by_id.get(citation.resource_id)
+        row = rows_by_key.get(_citation_key(citation))
         if row is None:
             continue  # citation existence is a separate rule
         if row.patient_id != expected_patient_uuid:
@@ -105,8 +105,12 @@ def check_typed_fact_reextraction(
     """
     if not item.citations:
         return None  # citation count check handles empty case
-    rows_by_id = {row.resource_id: row for row in tool_rows}
-    cited_rows = [rows_by_id[c.resource_id] for c in item.citations if c.resource_id in rows_by_id]
+    rows_by_key = {_row_key(row): row for row in tool_rows}
+    cited_rows = [
+        rows_by_key[_citation_key(c)]
+        for c in item.citations
+        if _citation_key(c) in rows_by_key
+    ]
     if not cited_rows:
         return None  # citation existence handles this
 
@@ -148,8 +152,12 @@ def check_staleness(
     max_age_days = MAX_AGE_DAYS_FOR_TYPE.get(item.type)
     if max_age_days is None:
         return None
-    rows_by_id = {row.resource_id: row for row in tool_rows}
-    cited_rows = [rows_by_id[c.resource_id] for c in item.citations if c.resource_id in rows_by_id]
+    rows_by_key = {_row_key(row): row for row in tool_rows}
+    cited_rows = [
+        rows_by_key[_citation_key(c)]
+        for c in item.citations
+        if _citation_key(c) in rows_by_key
+    ]
     if not cited_rows:
         return None
     youngest = max(row.last_updated for row in cited_rows)
@@ -174,6 +182,14 @@ def _serialize_row_for_match(row: TypedRow) -> str:
         parts.append(row.verbatim_excerpt)
     parts.append(_stringify(row.fields))
     return " ".join(parts)
+
+
+def _row_key(row: TypedRow) -> tuple[str, str]:
+    return row.resource_type, row.resource_id
+
+
+def _citation_key(citation: Citation) -> tuple[str, str]:
+    return citation.resource_type, citation.resource_id
 
 
 def _stringify(value: object) -> str:

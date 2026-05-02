@@ -201,8 +201,12 @@ def _check_staleness(
     max_age_days = CHAT_MAX_AGE_DAYS_FOR_TYPE.get(fact.type)
     if max_age_days is None:
         return None
-    rows_by_id = {row.resource_id: row for row in tool_rows}
-    cited_rows = [rows_by_id[c.resource_id] for c in fact.citations if c.resource_id in rows_by_id]
+    rows_by_key = {(row.resource_type, row.resource_id): row for row in tool_rows}
+    cited_rows = [
+        rows_by_key[(c.resource_type, c.resource_id)]
+        for c in fact.citations
+        if (c.resource_type, c.resource_id) in rows_by_key
+    ]
     if not cited_rows:
         return None
     youngest = max(row.last_updated for row in cited_rows)

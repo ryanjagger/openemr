@@ -111,23 +111,26 @@ def _user_prompt(patient_uuid: str, tool_rows: list[TypedRow]) -> str:
 def _note_for_row(row: TypedRow) -> str:
     """One-line label for the CONTEXT list — used by the synthesizing mock too."""
     fields = row.fields
+    candidates: list[str | None] = []
     if "code" in fields:
-        text = _coding_text(fields["code"])
-        if text:
-            return text
+        candidates.append(_coding_text(fields["code"]))
     if "medicationCodeableConcept" in fields:
-        text = _coding_text(fields["medicationCodeableConcept"])
-        if text:
-            return text
+        candidates.append(_coding_text(fields["medicationCodeableConcept"]))
     if "name" in fields and isinstance(fields["name"], list) and fields["name"]:
         first = fields["name"][0]
         if isinstance(first, dict):
             text = first.get("text")
             if isinstance(text, str):
-                return text
-    if row.verbatim_excerpt:
-        return row.verbatim_excerpt
-    return ""
+                candidates.append(text)
+    candidates.append(_plain_text(fields.get("description")))
+    start = fields.get("start")
+    if isinstance(start, str) and start.strip():
+        candidates.append(start.strip())
+    lifecycle_status = fields.get("lifecycleStatus")
+    if isinstance(lifecycle_status, str) and lifecycle_status.strip():
+        candidates.append(lifecycle_status.strip())
+    candidates.append(row.verbatim_excerpt)
+    return next((candidate for candidate in candidates if candidate), "")
 
 
 def _detail_for_row(row: TypedRow) -> str:
@@ -159,6 +162,16 @@ def _coding_text(value: object) -> str | None:
                     display = coding.get("display")
                     if isinstance(display, str) and display.strip():
                         return display.strip()
+    return None
+
+
+def _plain_text(value: object) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, dict):
+        text = value.get("text")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
     return None
 
 

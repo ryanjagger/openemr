@@ -210,11 +210,12 @@ def _sanitize_args(args: dict[str, object]) -> str:
 
 
 def _merge_rows(existing: list[TypedRow], incoming: list[TypedRow]) -> list[TypedRow]:
-    seen = {row.resource_id for row in existing}
+    seen = {(row.resource_type, row.resource_id) for row in existing}
     merged = list(existing)
     for row in incoming:
-        if row.resource_id in seen:
+        key = (row.resource_type, row.resource_id)
+        if key in seen:
             continue
         merged.append(row)
-        seen.add(row.resource_id)
+        seen.add(key)
     return merged

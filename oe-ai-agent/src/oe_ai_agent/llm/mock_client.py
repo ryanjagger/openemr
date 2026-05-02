@@ -173,39 +173,25 @@ def _maybe_item_for_row(rtype: str, rid: str, note: str) -> dict[str, Any] | Non
 
 def _maybe_chat_fact_for_row(rtype: str, rid: str, note: str) -> dict[str, Any] | None:
     citation = [{"resource_type": rtype, "resource_id": rid}]
-    if rtype == "MedicationRequest":
-        return {
-            "type": "medication",
-            "text": f"Medication: {note}",
-            "verbatim_excerpts": [note],
-            "citations": citation,
-        }
-    if rtype == "AllergyIntolerance":
-        return {
-            "type": "allergy",
-            "text": f"Allergy: {note}",
-            "verbatim_excerpts": [note],
-            "citations": citation,
-        }
-    if rtype == "Observation":
-        return {
-            "type": "observation",
-            "text": f"Observation: {note}",
-            "verbatim_excerpts": [note],
-            "citations": citation,
-        }
-    if rtype == "Encounter":
-        return {
-            "type": "encounter",
-            "text": f"Encounter: {note}",
-            "verbatim_excerpts": [note],
-            "citations": citation,
-        }
-    if rtype == "DocumentReference":
-        return {
-            "type": "note",
-            "text": f"Note: {note}",
-            "verbatim_excerpts": [note],
-            "citations": citation,
-        }
-    return None
+    mapping = {
+        "Patient": ("demographics", "Demographics"),
+        "MedicationRequest": ("medication", "Medication"),
+        "AllergyIntolerance": ("allergy", "Allergy"),
+        "Observation": ("observation", "Observation"),
+        "Encounter": ("encounter", "Encounter"),
+        "DocumentReference": ("note", "Note"),
+        "Appointment": ("appointment", "Appointment"),
+    }
+    if rtype in {"CarePlan", "Goal"}:
+        fact_type, label = "care_plan", "Care plan"
+    else:
+        mapped = mapping.get(rtype)
+        if mapped is None:
+            return None
+        fact_type, label = mapped
+    return {
+        "type": fact_type,
+        "text": f"{label}: {note}",
+        "verbatim_excerpts": [note],
+        "citations": citation,
+    }
