@@ -1,3 +1,13 @@
+| Project | Location |
+|---------|----------|
+| Project planning (ARCHITECTURE.md, USER.MD, AUDIT.md) | [`docs/planning/`](docs/planning/) |
+| OpenEMR module (PHP) | [`interface/modules/custom_modules/oe-module-ai-agent/`](interface/modules/custom_modules/oe-module-ai-agent/) |
+| AI sidecar | [`oe-ai-agent/`](oe-ai-agent/) |
+| Eval cases + runner | [`oe-ai-agent/evals/`](oe-ai-agent/evals/) |
+| Deployment | [`https://openemr-production-406c.up.railway.app/`](https://openemr-production-406c.up.railway.app/) |
+
+---
+
 [![Syntax Status](https://github.com/openemr/openemr/actions/workflows/syntax.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/syntax.yml)
 [![Styling Status](https://github.com/openemr/openemr/actions/workflows/styling.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/styling.yml)
 [![Testing Status](https://github.com/openemr/openemr/actions/workflows/test.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/test.yml)

@@ -12,6 +12,8 @@
 /public/           - Static assets
 /docker/           - Docker configurations
 /modules/          - Custom and third-party modules
+/oe-ai-agent/      - Python AI agent sidecar (FastAPI; see oe-ai-agent/CLAUDE.md)
+/tools/            - Operator tooling (Railway deploys, Langfuse exports)
 ```
 
 ## Technology Stack
@@ -376,19 +378,6 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 - `fix(calendar): correct date parsing for recurring events`
 - `chore(deps): bump monolog/monolog to 3.10.0`
 
-### AI Assistance Trailer
-
-If an AI assistant helped write a commit, add an `Assisted-by` trailer to that
-commit:
-
-```bash
-git commit --trailer "Assisted-by: Claude Code" -m "fix(calendar): correct date parsing"
-```
-
-Use the name of the tool as the trailer value (e.g. `Claude Code`,
-`GitHub Copilot`, `ChatGPT`). When the AI agent creates commits automatically,
-this trailer is typically added for you.
-
 ## Service Layer Pattern
 
 New services should extend `BaseService`:
@@ -442,3 +431,5 @@ Preserve existing authors/copyrights when editing files.
 - `API_README.md` - REST API docs
 - `FHIR_README.md` - FHIR implementation
 - `tests/Tests/README.md` - Testing guide
+- `oe-ai-agent/CLAUDE.md` - Python AI agent sidecar (conventions, tool authoring, env vars)
+- `oe-ai-agent/evals/README.md` - Live-LLM eval harness for brief and chat agents
