@@ -1,107 +1,25 @@
 # OpenEMR AI Agent — Architecture
 
-## Intro
-
-The below MVP draft is designed around implementing a single user story - generating a patient 'summary/brief' for a physician that is displayed on on the patient dashboard UI. My goal in this phase is to 1. have a very well understood technical plan that I can then turn into tasks to start implementing and 2. have the beginning of a deployment pipeline ready for new feature adds.
-
-While just beginning with a single user-story feature, it contains the architecture and platform needed to implement further AI tools.
-
-
-## OpenEMR Plugin Architecture
-
-During an architecture audit, I found that OpenEMR has a mature plug-in architecture that allows for custom modules. It also includes an event architecture we can hook into. There are eight modules already in the codebase with patterns we can follow.
-
-Given the nature of this application (healthcare) and future constraints (HIPPA, BAA rules), we should build on the module extensibility patterns already in OpenEMR.
-
-> I plan to build the feature as an OpenEMR custom module, expose only a narrow PHP-facing “agent gateway,” let PHP enforce OpenEMR authorization and patient context, and let the Python sidecar handle LLM orchestration, LangGraph workflows, verification, and observability.
-
-We'll follow existing PHP module patterns for the new module, with the Python sidecare service allowing us to work with more modern tooling.
-
-
-
-## AI Patient Brief Request Flow
-
-1. **Browser / Patient Dashboard**
-   - Sends:
-     - `POST /interface/modules/custom_modules/oe-module-ai-agent/public/patient-brief.php`
-
-2. **OpenEMR AI Module (PHP)**
-   - Validates:
-     - session + CSRF
-     - current patient context
-     - OpenEMR ACLs
-   - Prepares:
-     - minimal allowed clinical context
-   - Calls:
-     - Python sidecar over mTLS or local network
-
-3. **Python Sidecar**
-   - Runs LangGraph workflow:
-     - fetch/receive clinical context (tool calls)
-     - normalize into evidence bundle
-     - generate brief
-     - verify citations / grounding
-     - return structured result
-
-4. **OpenEMR Module (PHP)**
-   - Stores:
-     - audit record
-     - optional cached brief
-
-5. **Dashboard Card**
-   - Renders the patient brief to the user
-
-
-
-## User Authentication & Permissions
-
-During the OpenEMR code audit, I identified several default user roles — Admin, Physician, Clinician, Front Office, Accounting, & Emergency. Actual security/authorization comes from ACL group memberships:
-
->User account ->
-  -> belongs to one or more groups / roles
-  -> groups have ACL permissions
-  -> code checks ACLs before showing or performing actions
-  -> patient context / encounter context further constrains what the user can access
-  -> API/FHIR scopes add another permission layer for API access
-
-These permissions can be used in our tool calling functions:
-
-	{
-	  "tool": "get_patient_demographics",
-	  "requires": [
-	    ["patients", "demo", "view"]
-	  ]
-	}`
-
-
-## APIs and Tool Calling
-
-OpenEMR’s current API docs list a broad FHIR surface including patient-level resources such as Patient, AllergyIntolerance, CarePlan, CareTeam, Condition, DiagnosticReport, DocumentReference, Encounter, Goal, Immunization, Medication, MedicationRequest, Observation, Procedure, Provenance, and others. These map very closely to patient-brief agent tools I intend to build out for v1: get_patient_demographics, get_active_conditions, get_active_medications, get_allergies. 
-
-
-
-
-
 
 **Date:** 2026-04-28
 **Status:** Draft for MVP
-**Related docs:** [`USERS.md`](users.md), [`AUDIT.md`](AUDIT.md),
+**Related docs:** [`USER.md`](USER.md), [`AUDIT.md`](AUDIT.md), [`auth.md`](auth.md), [`module-architecture.md`](module-architecture.md)
 
 ---
 
 ## Executive Summary
 
-This document defines the architecture for an AI agent integrated into OpenEMR. The MVP wedge is a **read-only "5-line patient brief"** rendered in a panel on the physician patient summary page, targeted at the persona in `USERS.md` §2: a primary care physician between patients who needs a chart-prep brief in under 60 seconds. Subsequent personas (MA med-rec, biller AR triage, ED resident, front office, admin) extend from this same substrate; design decisions favor the MVP without precluding them.
+This document defines the architecture for an AI agent integrated into OpenEMR. The MVP wedge is a **read-only "5-line patient brief"** rendered in a panel on the physician patient summary page, targeted at the persona in [`USER.md`](USER.md) §2: a primary care physician between patients who needs a chart-prep brief in under 60 seconds. Subsequent personas (MA med-rec, biller AR triage, ED resident, front office, admin) extend from this same substrate; design decisions favor the MVP without precluding them.
 
 ### Key decisions
 
 **Topology — two halves.** A new OpenEMR custom module (`oe-module-ai-agent`, PHP) is paired with a separate Python sidecar service (`oe-ai-agent`, FastAPI). The PHP module owns the UI panel, REST endpoint, `pid`-ownership pre-check, and per-call audit log. The Python sidecar runs the agent (LangGraph), calls the LLM, runs the verifier, and reads patient data from OpenEMR's FHIR API over OAuth2. The two halves communicate over internal HTTP with the user's bearer token passed through, so the agent inherits the user's FHIR scope automatically — closing the audit's HIGH `pid` ACL finding (`interface/globals.php:155-157`) by construction for any agent-initiated read.
 
-**Custom module, not a fork.** All integration is via `interface/modules/custom_modules/oe-module-ai-agent/`, Symfony EventDispatcher subscriptions, and registered REST routes. Core OpenEMR is not modified. Per `docs/openemr/module-architecture.md`, this is the supported extension surface.
+**Custom module, not a fork.** All integration is via `interface/modules/custom_modules/oe-module-ai-agent/`, Symfony EventDispatcher subscriptions, and registered REST routes. Core OpenEMR is not modified. Per [`module-architecture.md`](module-architecture.md), this is the supported extension surface.
 
 **Read-only on day one; writes designed-for, not built.** The tool layer, agent state, and audit log all support write semantics, but no write tools are exposed in MVP. Adding writes is additive — new tools, a new approval-gate node in the LangGraph, no schema or topology changes.
 
-**LangGraph for agent orchestration.** Pydantic v2 schemas, FastAPI service, Authlib for OAuth2/SMART-on-FHIR, `fhir.resources` for typed FHIR objects. LLM provider is pluggable behind LiteLLM with a deterministic mock for tests. LangSmith tracing enabled in non-test environments. Choice over Pydantic AI: longer-arc personas (biller denial clustering, MA med-rec, write-side approval gates) are graph-shaped; pay the LangGraph tax now to avoid migration later.
+**LangGraph for agent orchestration.** Pydantic v2 schemas, FastAPI service, Authlib for OAuth2/SMART-on-FHIR, `fhir.resources` for typed FHIR objects. LLM provider is pluggable behind LiteLLM with a deterministic mock for tests. Langfuse tracing enabled in demo environments. Choice over Pydantic AI: longer-arc personas (biller denial clustering, MA med-rec, write-side approval gates) are graph-shaped; pay the LangGraph tax now to avoid migration later.
 
 **Verification before output, two deterministic tiers.** Every brief item passes through the verifier before the user sees it. **Tier 1 (structural):** every citation ID came from a tool response the model actually saw; cited row's `pid` matches the current patient; cited table is allowed for the claim type; for typed facts (numbers, dates, drug names from coded fields), the value is re-extracted from the source row and string-compared. **Tier 2 (output schema):** brief items are constrained to a closed enum of claim types (`med_current`, `med_change`, `overdue`, `recent_event`, `agenda_item`, `code_status`, `allergy`); regex denylist on rendered text blocks advisory phrasing (`"I recommend"`, `"you should"`, `"consider"`). **Tier 3 (LLM-as-judge for paraphrase fidelity)** is documented but deferred. **Failure UX:** failed items are silently dropped from the rendered brief and logged to `llm_call_log` for offline review.
 
@@ -159,7 +77,7 @@ A working physician brief that is **verifiable** (every claim traceable to a sou
 ```
 
 **Why two services, not one PHP module:**
-- Python's agent ecosystem (LangGraph, Pydantic AI, LiteLLM, LangSmith) is materially better-supported than PHP's. The MVP loop is small, but the system grows toward multi-step graphs (writes, biller persona, Tier 3 verifier) where this matters.
+- Python's agent ecosystem (LangGraph, Pydantic AI, LiteLLM, Langfuse) is materially better-supported than PHP's. The MVP loop is small, but the system grows toward multi-step graphs (writes, biller persona, Tier 3 verifier) where this matters.
 - Forces all sidecar→OpenEMR data access through the official FHIR + OAuth2 surface — no internal backchannel. This is the integration shape the audits push for and bakes HIPAA-relevant scoping in from day one.
 - Independent scaling and deployment lifecycle. The agent can be redeployed without restarting OpenEMR.
 
@@ -179,7 +97,7 @@ A working physician brief that is **verifiable** (every claim traceable to a sou
 1. Doc opens chart. Patient summary page renders.
 2. Twig panel injected via `OpenEMR\Events\PatientDemographics\RenderEvent::EVENT_SECTION_LIST_RENDER_BEFORE` (the proven pattern used by `oe-module-weno` and `oe-module-claimrev-connect`) shows a "Generate brief" button.
 3. Click → `POST /apis/default/api/ai/brief/{pid}` (OpenEMR session-authenticated).
-4. PHP `PatientAccessValidator` runs `AclMain::aclCheck(...)` and verifies user has access to that `pid` per their phpGACL roles and `see_auth` setting (`docs/openemr/auth.md` §4). On fail: 403, no agent call, audit row marked `denied`.
+4. PHP `PatientAccessValidator` runs `AclMain::aclCheck(...)` and verifies user has access to that `pid` per their phpGACL roles and `see_auth` setting ([`auth.md`](auth.md) §4). On fail: 403, no agent call, audit row marked `denied`.
 5. PHP mints a short-lived OAuth2 bearer token on the user's behalf with narrow read scopes (`patient/Patient.read patient/Condition.read patient/MedicationRequest.read patient/AllergyIntolerance.read patient/Encounter.read patient/Observation.read patient/DocumentReference.read`) and posts the request to the sidecar.
 6. Sidecar runs the LangGraph (`fetch_context → llm_call → parse → verify`) and returns the verified brief.
 7. PHP writes the `llm_call_log` row (hashes, token counts, verification status, integrity HMAC), returns the brief to the browser.
@@ -319,7 +237,7 @@ The sidecar never holds long-lived credentials. Each request gets a fresh short-
 
 | Layer | Choice | Why | Alternatives considered |
 |---|---|---|---|
-| **Agent orchestration** | **LangGraph** | Graph shape fits the longer arc (writes → human-in-loop, biller persona → multi-step, Tier 3 verifier → conditional branch). LangSmith tracing for evals from day one. | Pydantic AI (right-sized for MVP but migration cost when shape grows); Claude Agent SDK / OpenAI Agents SDK (provider lock-in); thin custom (no migration story). |
+| **Agent orchestration** | **LangGraph** | Graph shape fits the longer arc (writes → human-in-loop, biller persona → multi-step, Tier 3 verifier → conditional branch). Langfuse tracing for demo observability from day one. | Pydantic AI (right-sized for MVP but migration cost when shape grows); Claude Agent SDK / OpenAI Agents SDK (provider lock-in); thin custom (no migration story). |
 | **LLM provider abstraction** | **LiteLLM** | Provider-agnostic; same call shape for Anthropic, OpenAI, Azure, Vertex, local. Mockable via custom `LLMRouter` class. | Provider-native SDKs (lock-in); raw httpx (reinventing). |
 | **Sidecar web framework** | **FastAPI** | Pydantic-native, async, auto-OpenAPI, dominant ecosystem. | Litestar (newer, smaller); Flask (less ergonomic for typed APIs). |
 | **HTTP client (sidecar)** | **httpx** | Async, modern, mockable via `respx`. | aiohttp (less ergonomic). |
@@ -482,7 +400,7 @@ For MVP this is a linear chain. The LangGraph investment pays off in v2 when:
 
 ### 7.4 Tracing
 
-LangSmith is enabled in non-test environments via `LANGSMITH_API_KEY` env var. Each brief generates one trace with all four nodes visible, including tool inputs, LLM call payload, parse outcome, and verifier decisions. Tests use `langgraph.pregel.test` utilities and never hit LangSmith.
+Langfuse is enabled when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are configured and `LANGFUSE_TRACING_ENABLED` is not false. Each brief/chat request generates one trace with LangGraph node spans, full synthetic tool inputs/outputs, LLM prompts/responses, usage/cost, parse outcome, and verifier decisions. Missing Langfuse credentials fall back to the local `ResponseMeta` trace only. Raw Langfuse capture is for synthetic/demo data, not production PHI without a BAA and data policy review.
 
 ---
 
@@ -536,7 +454,7 @@ Every agent FHIR call already produces an `api_log` row through OpenEMR's existi
 
 ## 9. Security Posture vs Audit Findings
 
-Mapping against `docs/openemr/AUDIT.md` §6.1 ("Five Things to Fix First") and §6.4 (pre-flight checklist):
+Mapping against [`AUDIT.md`](AUDIT.md) §6.1 ("Five Things to Fix First") and §6.4 (pre-flight checklist):
 
 | Audit finding | Severity | Mitigation in this architecture |
 |---|---|---|
@@ -566,7 +484,7 @@ These audit findings are deployment-time or out of scope for an agent module:
 - Hardcoded passwords in production Docker compose (ops)
 - OPcache / globals caching / N+1 query elimination (core OpenEMR perf)
 
-They remain on the deployment hardening checklist in `docs/openemr/AUDIT.md` §5.7.
+They remain on the deployment hardening checklist in [`AUDIT.md`](AUDIT.md) §5.7.
 
 ---
 
@@ -660,8 +578,12 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       OPENEMR_FHIR_BASE: http://openemr/apis/default/fhir
       INTERNAL_AUTH_SECRET: ${INTERNAL_AUTH_SECRET}
-      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
-      LANGSMITH_PROJECT: oe-ai-agent-dev
+      LANGFUSE_TRACING_ENABLED: ${LANGFUSE_TRACING_ENABLED:-true}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://us.cloud.langfuse.com}
+      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-development}
+      LANGFUSE_FLUSH_ON_REQUEST: ${LANGFUSE_FLUSH_ON_REQUEST:-true}
     networks:
       - oe-internal
     depends_on:
@@ -701,7 +623,7 @@ Per audit §5.7:
 
 ### 14.1 Tradeoffs we explicitly accepted
 
-1. **PHP-Python polyglot.** Two languages, two test stacks, two CI lanes. Cost vs benefit: Python's agent ecosystem (LangGraph, Pydantic, LiteLLM, LangSmith) is meaningfully better. Cost is one Dockerfile and a sidecar deploy.
+1. **PHP-Python polyglot.** Two languages, two test stacks, two CI lanes. Cost vs benefit: Python's agent ecosystem (LangGraph, Pydantic, LiteLLM, Langfuse) is meaningfully better. Cost is one Dockerfile and a sidecar deploy.
 2. **LangGraph day one over Pydantic AI.** MVP is a single-LLM-call problem; LangGraph is over-engineered for it. We pay the over-engineering tax now in exchange for no migration when the shape grows (writes → human-in-loop, biller persona → multi-step, Tier 3 verifier → conditional branch).
 3. **FHIR over OAuth2 vs in-process services-layer.** ~125–300ms-per-call latency tax (audit §2.1) for every FHIR fetch. Acceptable for MVP. Caching layer is the path forward, not collapsing to direct services-layer access.
 4. **User-token pass-through over agent-as-system-client.** Pass-through inherits user ACL automatically (good — closes the audit's `pid` HIGH finding by construction). System-client is more typical for service-to-service but requires re-implementing scope checks. We chose pass-through; system-client is the long-term answer for background/scheduled agent runs (no logged-in user).
@@ -717,7 +639,7 @@ Per audit §5.7:
 - **Synthetic data source.** Synthea? Hand-crafted? OpenEMR's existing demo dataset? We need ~50 representative charts with known ground truth for the golden brief suite. Recommend Synthea + 10 hand-curated edge-case charts for the verifier suite.
 - **LLM provider for live demo.** Claude Sonnet 4.6 is the current default for this kind of structured-output task; GPT-4o-mini or Haiku 4.5 are cheaper. Cost target?
 - **Auto-render vs click-to-render.** MVP defaults to click-to-render. Auto-render matches the persona's "60 seconds before walking in" need but costs more. Decision point after first usage data.
-- **LangSmith account.** Project setup needed before first traced run.
+- **Langfuse project.** Project keys needed before the first externally traced run.
 - **Internal auth between PHP and sidecar.** Shared secret for MVP; mTLS for multi-host deploy. Confirm deployment shape.
 
 ---
@@ -727,15 +649,16 @@ Per audit §5.7:
 ```
 openemr/                                                        # existing repo root
 ├── docs/
-│   ├── agent/
-│   │   └── ARCHITECTURE.md                                     # this document
-│   ├── openemr/
-│   │   ├── AUDIT.md
-│   │   ├── AUDIT2.md
-│   │   ├── audit-concise.md
-│   │   ├── auth.md
-│   │   └── module-architecture.md
-│   └── users.md
+│   └── planning/
+│       ├── ARCHITECTURE.md                                     # this document
+│       ├── AUDIT.md
+│       ├── audit1.md
+│       ├── audit2.md
+│       ├── auth.md
+│       ├── module-architecture.md
+│       ├── repo-overview.md
+│       ├── TASKS.md
+│       └── USER.md
 ├── interface/modules/custom_modules/oe-module-ai-agent/        # PHP module
 │   ├── openemr.bootstrap.php
 │   ├── composer.json

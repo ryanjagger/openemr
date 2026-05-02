@@ -94,7 +94,7 @@ Goal: real LLM produces structured output, verifier gates it.
 
 ## Cross-cutting / non-task hygiene
 
-- LangSmith tracing wired in non-test envs via `LANGSMITH_API_KEY` (synthetic data only — no Path 2 implications).
+- Langfuse tracing wired for demo environments via `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`; raw capture is synthetic data only.
 - Inline call only; queue seam shape preserved in `BriefService` for post-MVP Arq+Redis migration.
 - No write tools, no `human_approval` node, no Tier 3 LLM-as-judge in MVP. Path documented in ARCH §11 and §6.3.
 - Per `CLAUDE.md`: PHPStan level 10, mypy strict + ruff, `final readonly` DTOs, `QueryUtils` for SQL, `OEGlobalsBag` over `$GLOBALS`, constructor DI.
