@@ -1,10 +1,11 @@
 | Project | Location |
 |---------|----------|
+| Deployment | [`https://openemr-production-406c.up.railway.app/`](https://openemr-production-406c.up.railway.app/) |
 | Project planning (ARCHITECTURE.md, USER.MD, AUDIT.md) | [`docs/planning/`](docs/planning/) |
+| AI Cost Analysis | [`AI-COST-ANALYSIS.md/`](docs/planning/AI-COST-ANALYSIS.md) |
 | OpenEMR module (PHP) | [`interface/modules/custom_modules/oe-module-ai-agent/`](interface/modules/custom_modules/oe-module-ai-agent/) |
 | AI sidecar | [`oe-ai-agent/`](oe-ai-agent/) |
 | Eval cases + runner | [`oe-ai-agent/evals/`](oe-ai-agent/evals/) |
-| Deployment | [`https://openemr-production-406c.up.railway.app/`](https://openemr-production-406c.up.railway.app/) |
 
 ---
 
