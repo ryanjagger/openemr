@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from oe_ai_agent.schemas.brief import Citation, VerificationFailure
 from oe_ai_agent.schemas.observability import ResponseMeta
+from oe_ai_agent.schemas.tool_results import TypedRow
 
 
 class ChatRole(StrEnum):
@@ -40,6 +41,8 @@ class ChatFactType(StrEnum):
     OBSERVATION = "observation"
     ENCOUNTER = "encounter"
     NOTE = "note"
+    INTAKE_ANSWER = "intake_answer"
+    DOCUMENT_FACT = "document_fact"
     ORDER = "order"
     PROCEDURE = "procedure"
     IMMUNIZATION = "immunization"
@@ -75,6 +78,7 @@ class ChatRequest(BaseModel):
     request_id: str
     conversation_id: str | None = None
     messages: list[ChatMessage] = Field(default_factory=list)
+    document_context: list[TypedRow] = Field(default_factory=list)
     user_id: str | None = None
     session_id: str | None = None
 

@@ -85,7 +85,7 @@ class LlmClient(Protocol):
 
     async def chat(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         response_format: dict[str, Any] | None = None,
     ) -> LlmCompletionResult:
         """Return the assistant's reply plus usage metrics."""

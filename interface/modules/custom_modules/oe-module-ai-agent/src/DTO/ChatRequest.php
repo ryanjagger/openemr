@@ -15,7 +15,8 @@ namespace OpenEMR\Modules\AiAgent\DTO;
 final readonly class ChatRequest
 {
     /**
-     * @param list<ChatMessage> $messages
+     * @param list<ChatMessage>          $messages
+     * @param list<array<string, mixed>> $documentContext
      */
     public function __construct(
         public string $patientUuid,
@@ -24,6 +25,7 @@ final readonly class ChatRequest
         public string $requestId,
         public ?string $conversationId,
         public array $messages,
+        public array $documentContext = [],
         public ?string $userId = null,
         public ?string $sessionId = null,
     ) {
@@ -37,6 +39,7 @@ final readonly class ChatRequest
      *     request_id: string,
      *     conversation_id: string|null,
      *     messages: list<array{role: string, content: string}>,
+     *     document_context: list<array<string, mixed>>,
      *     user_id: string|null,
      *     session_id: string|null
      * }
@@ -53,6 +56,7 @@ final readonly class ChatRequest
                 static fn (ChatMessage $m): array => $m->toArray(),
                 $this->messages,
             ),
+            'document_context' => $this->documentContext,
             'user_id' => $this->userId,
             'session_id' => $this->sessionId,
         ];

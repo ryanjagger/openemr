@@ -20,8 +20,10 @@ use OpenEMR\Events\RestApiExtend\RestApiCreateEvent;
 use OpenEMR\Menu\MenuEvent;
 use OpenEMR\Modules\AiAgent\Controller\BriefController;
 use OpenEMR\Modules\AiAgent\Controller\ChatController;
+use OpenEMR\Modules\AiAgent\Controller\DocumentIngestionController;
 use stdClass;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
+use Symfony\Component\HttpFoundation\JsonResponse;
 
 final class Bootstrap
 {
@@ -62,6 +64,36 @@ final class Bootstrap
             'POST /api/ai/chat/:pid',
             function (string $pid, HttpRestRequest $request): array {
                 return ChatController::default()->turn($pid, $request);
+            },
+        );
+        $event->addToRouteMap(
+            'GET /api/ai/documents/recent/:pid',
+            function (string $pid, HttpRestRequest $request): JsonResponse {
+                return DocumentIngestionController::default()->recent($pid, $request);
+            },
+        );
+        $event->addToRouteMap(
+            'POST /api/ai/documents/ingest/:pid',
+            function (string $pid, HttpRestRequest $request): JsonResponse {
+                return DocumentIngestionController::default()->ingest($pid, $request);
+            },
+        );
+        $event->addToRouteMap(
+            'GET /api/ai/documents/jobs/:pid/:jobId',
+            function (string $pid, string $jobId, HttpRestRequest $request): JsonResponse {
+                return DocumentIngestionController::default()->job($pid, $jobId, $request);
+            },
+        );
+        $event->addToRouteMap(
+            'GET /api/ai/documents/indexed/:pid/document',
+            function (string $pid, HttpRestRequest $request): JsonResponse {
+                return DocumentIngestionController::default()->indexed($pid, $request);
+            },
+        );
+        $event->addToRouteMap(
+            'GET /api/ai/documents/indexed-facts/:pid/document',
+            function (string $pid, HttpRestRequest $request): JsonResponse {
+                return DocumentIngestionController::default()->indexedFacts($pid, $request);
             },
         );
 

@@ -16,6 +16,12 @@ from oe_ai_agent.tools.care_plan_goals import get_care_plan_goals
 from oe_ai_agent.tools.demographics import get_demographics
 from oe_ai_agent.tools.fhir_client import FhirClient, FhirError
 from oe_ai_agent.tools.immunizations import get_immunizations
+from oe_ai_agent.tools.indexed_documents import (
+    get_indexed_intake_answers,
+    get_indexed_lab_results,
+    search_indexed_document_facts,
+    search_indexed_documents,
+)
 from oe_ai_agent.tools.lab_trend import get_lab_trend
 from oe_ai_agent.tools.medication_history import get_medication_history
 from oe_ai_agent.tools.observation_search import get_observations
@@ -103,6 +109,68 @@ async def _handle_recent_notes(
     return await get_recent_notes(
         client,
         patient_uuid,
+        limit=_optional_limit(arguments.get("limit")),
+    )
+
+
+async def _handle_search_indexed_documents(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    return await search_indexed_documents(
+        client,
+        patient_uuid,
+        document_type=_optional_str(arguments.get("document_type")),
+        query=_optional_str(arguments.get("query")),
+        limit=_optional_limit(arguments.get("limit")),
+    )
+
+
+async def _handle_search_indexed_document_facts(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    return await search_indexed_document_facts(
+        client,
+        patient_uuid,
+        document_uuid=_optional_str(arguments.get("document_uuid")),
+        document_type=_optional_str(arguments.get("document_type")),
+        fact_type=_optional_str(arguments.get("fact_type")),
+        query=_optional_str(arguments.get("query")),
+        observed_on_from=_optional_date_string(
+            arguments.get("observed_on_from"),
+            "observed_on_from",
+        ),
+        observed_on_to=_optional_date_string(arguments.get("observed_on_to"), "observed_on_to"),
+        limit=_optional_limit(arguments.get("limit")),
+    )
+
+
+async def _handle_indexed_lab_results(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    return await get_indexed_lab_results(
+        client,
+        patient_uuid,
+        code_or_text=_optional_str(arguments.get("code_or_text")),
+        since=_optional_date_string(arguments.get("since"), "since"),
+        limit=_optional_limit(arguments.get("limit")),
+    )
+
+
+async def _handle_indexed_intake_answers(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    return await get_indexed_intake_answers(
+        client,
+        patient_uuid,
+        query=_optional_str(arguments.get("query")),
         limit=_optional_limit(arguments.get("limit")),
     )
 
@@ -261,6 +329,11 @@ def _optional_iso_date(value: object, name: str) -> date | None:
         raise ValueError(f"invalid {name} {value!r}; expected YYYY-MM-DD") from exc
 
 
+def _optional_date_string(value: object, name: str) -> str | None:
+    parsed = _optional_iso_date(value, name)
+    return parsed.isoformat() if parsed is not None else None
+
+
 def _dated_search_properties(
     *,
     extra: dict[str, dict[str, object]],
@@ -351,6 +424,144 @@ CHAT_TOOL_REGISTRY: dict[str, ChatToolSpec] = {
             "additionalProperties": False,
         },
         handler=_handle_recent_notes,
+    ),
+    "search_indexed_documents": ChatToolSpec(
+        name="search_indexed_documents",
+        description=(
+            "Search manifests for uploaded documents that have already been "
+            "ingested by the AI document index. Use for finding available "
+            "uploaded lab reports, intake forms, and future indexed document "
+            "types before fetching detailed facts."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "document_type": {
+                    "type": "string",
+                    "description": (
+                        "Optional indexed document type, such as lab_report "
+                        "or intake_form."
+                    ),
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Optional filename/type/summary search text.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Optional result limit from 1 to 100.",
+                },
+            },
+            "additionalProperties": False,
+        },
+        handler=_handle_search_indexed_documents,
+    ),
+    "search_indexed_document_facts": ChatToolSpec(
+        name="search_indexed_document_facts",
+        description=(
+            "Search extracted, evidence-backed facts from uploaded/indexed "
+            "documents. Use for uploaded document questions, source evidence, "
+            "intake form answers, and future document fact types."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "document_uuid": {
+                    "type": "string",
+                    "description": "Optional indexed document UUID to restrict the search.",
+                },
+                "document_type": {
+                    "type": "string",
+                    "description": (
+                        "Optional indexed document type, such as lab_report "
+                        "or intake_form."
+                    ),
+                },
+                "fact_type": {
+                    "type": "string",
+                    "description": (
+                        "Optional extracted fact type, such as lab_result "
+                        "or intake_answer."
+                    ),
+                },
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Optional text to match labels, values, metadata, or "
+                        "source snippets."
+                    ),
+                },
+                "observed_on_from": {
+                    "type": "string",
+                    "description": (
+                        "Optional ISO date (YYYY-MM-DD) lower bound for fact "
+                        "observed_on."
+                    ),
+                },
+                "observed_on_to": {
+                    "type": "string",
+                    "description": (
+                        "Optional ISO date (YYYY-MM-DD) upper bound for fact "
+                        "observed_on."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Optional result limit from 1 to 100.",
+                },
+            },
+            "additionalProperties": False,
+        },
+        handler=_handle_search_indexed_document_facts,
+    ),
+    "get_indexed_lab_results": ChatToolSpec(
+        name="get_indexed_lab_results",
+        description=(
+            "Fetch lab_result facts extracted from uploaded/indexed lab report "
+            "PDFs or PNGs. This is separate from get_lab_trend, which queries "
+            "structured FHIR Observation data."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "code_or_text": {
+                    "type": "string",
+                    "description": "Optional analyte/lab name text, such as LDL or triglycerides.",
+                },
+                "since": {
+                    "type": "string",
+                    "description": "Optional ISO date (YYYY-MM-DD) lower bound for observed_on.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Optional result limit from 1 to 100.",
+                },
+            },
+            "additionalProperties": False,
+        },
+        handler=_handle_indexed_lab_results,
+    ),
+    "get_indexed_intake_answers": ChatToolSpec(
+        name="get_indexed_intake_answers",
+        description=(
+            "Fetch intake_answer facts extracted from uploaded/indexed patient "
+            "intake forms, including source snippets for evidence."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Optional intake question/field/answer text.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Optional result limit from 1 to 100.",
+                },
+            },
+            "additionalProperties": False,
+        },
+        handler=_handle_indexed_intake_answers,
     ),
     "get_lab_trend": ChatToolSpec(
         name="get_lab_trend",
@@ -550,8 +761,10 @@ async def execute_chat_tool(
                 {
                     "resource_type": row.resource_type,
                     "resource_id": row.resource_id,
+                    "patient_id": row.patient_id,
                     "last_updated": row.last_updated.isoformat(),
                     "fields": row.fields,
+                    "verbatim_excerpt": row.verbatim_excerpt,
                 }
                 for row in rows
             ],

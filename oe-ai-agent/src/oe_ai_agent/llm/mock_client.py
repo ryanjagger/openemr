@@ -41,7 +41,7 @@ class MockLlmClient:
 
     def __init__(
         self,
-        scripted: str | Callable[[list[dict[str, str]], dict[str, Any] | None], str] | None = None,
+        scripted: str | Callable[[list[dict[str, Any]], dict[str, Any] | None], str] | None = None,
         *,
         chat_scripted: ChatScript | None = None,
         default_usage: LlmUsage | None = None,
@@ -52,7 +52,7 @@ class MockLlmClient:
 
     async def chat(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         response_format: dict[str, Any] | None = None,
     ) -> LlmCompletionResult:
         if self._scripted is None:
@@ -101,11 +101,11 @@ class MockLlmClient:
 
 
 def _synthesize_from_context(
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     response_format: dict[str, Any] | None,
 ) -> str:
     """Build schema-valid JSON that cites real rows surfaced in the prompt."""
-    blob = "\n".join(m.get("content", "") for m in messages)
+    blob = "\n".join(_content_to_text(m.get("content", "")) for m in messages)
     rows = list(_CONTEXT_LINE_RE.finditer(blob))
     items: list[dict[str, Any]] = []
     is_chat = (
@@ -138,6 +138,19 @@ def _synthesize_from_context(
         )
 
     return json.dumps({"items": items, "verification_failures": []})
+
+
+def _content_to_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [
+            str(part.get("text", ""))
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        ]
+        return "\n".join(parts)
+    return ""
 
 
 def _maybe_item_for_row(rtype: str, rid: str, note: str) -> dict[str, Any] | None:
@@ -180,6 +193,7 @@ def _maybe_chat_fact_for_row(rtype: str, rid: str, note: str) -> dict[str, Any] 
         "Observation": ("observation", "Observation"),
         "Encounter": ("encounter", "Encounter"),
         "DocumentReference": ("note", "Note"),
+        "IndexedDocumentFact": ("document_fact", "Indexed document fact"),
         "Appointment": ("appointment", "Appointment"),
     }
     if rtype in {"CarePlan", "Goal"}:

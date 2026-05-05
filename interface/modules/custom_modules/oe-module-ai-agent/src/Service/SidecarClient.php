@@ -25,7 +25,9 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 final class SidecarClient
 {
-    private const TIMEOUT_SECONDS = 30.0;
+    private const BRIEF_TIMEOUT_SECONDS = 30.0;
+    private const CHAT_TIMEOUT_SECONDS = 90.0;
+    private const DOCUMENT_TIMEOUT_SECONDS = 180.0;
 
     public function __construct(
         private readonly string $baseUrl,
@@ -52,16 +54,38 @@ final class SidecarClient
 
     public function fetchBrief(BriefRequest $request): BriefResponse
     {
-        $decoded = $this->postJson('/v1/brief', $request->toArray(), $request->requestId);
+        $decoded = $this->postJson(
+            '/v1/brief',
+            $request->toArray(),
+            $request->requestId,
+            self::BRIEF_TIMEOUT_SECONDS,
+        );
 
         return BriefResponse::fromArray($decoded);
     }
 
     public function fetchChatTurn(ChatRequest $request): ChatTurnResponse
     {
-        $decoded = $this->postJson('/v1/chat', $request->toArray(), $request->requestId);
+        $decoded = $this->postJson(
+            '/v1/chat',
+            $request->toArray(),
+            $request->requestId,
+            self::timeoutFromEnvironment('AI_AGENT_CHAT_TIMEOUT_SECONDS', self::CHAT_TIMEOUT_SECONDS),
+        );
 
         return ChatTurnResponse::fromArray($decoded);
+    }
+
+    /**
+     * @param array<string, mixed> $request
+     *
+     * @return array<string, mixed>
+     */
+    public function extractDocument(array $request): array
+    {
+        $requestId = (string) ($request['request_id'] ?? '');
+
+        return $this->postJson('/v1/documents/extract', $request, $requestId, self::DOCUMENT_TIMEOUT_SECONDS);
     }
 
     /**
@@ -69,8 +93,12 @@ final class SidecarClient
      *
      * @return array<string, mixed>
      */
-    private function postJson(string $path, array $body, string $requestId): array
-    {
+    private function postJson(
+        string $path,
+        array $body,
+        string $requestId,
+        float $timeoutSeconds,
+    ): array {
         $startedAt = microtime(true);
         $this->logger->debug('sidecar.request.start', [
             'path' => $path,
@@ -86,7 +114,7 @@ final class SidecarClient
                         'X-Internal-Auth' => $this->internalAuthSecret,
                     ],
                     'body' => json_encode($body, JSON_THROW_ON_ERROR),
-                    'timeout' => self::TIMEOUT_SECONDS,
+                    'timeout' => $timeoutSeconds,
                 ],
             );
             $status = $response->getStatusCode();
@@ -122,5 +150,15 @@ final class SidecarClient
             ]);
             throw new RuntimeException('Sidecar transport error', previous: $e);
         }
+    }
+
+    private static function timeoutFromEnvironment(string $key, float $defaultSeconds): float
+    {
+        $raw = getenv($key);
+        if (!is_string($raw) || !is_numeric($raw)) {
+            return $defaultSeconds;
+        }
+
+        return max(1.0, (float) $raw);
     }
 }

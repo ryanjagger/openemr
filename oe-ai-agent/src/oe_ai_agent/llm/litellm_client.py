@@ -51,7 +51,7 @@ class LiteLLMClient:
 
     async def chat(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         response_format: dict[str, Any] | None = None,
     ) -> LlmCompletionResult:
         kwargs = self._base_kwargs(messages)
@@ -61,7 +61,10 @@ class LiteLLMClient:
         async with langfuse_observation(
             name="litellm.chat",
             as_type="generation",
-            input_payload={"messages": messages, "response_format": response_format},
+            input_payload={
+                "messages": _redact_large_multimodal_payloads(messages),
+                "response_format": response_format,
+            },
             model=self._model,
             model_parameters={"max_tokens": self._max_tokens},
         ) as generation:
@@ -115,7 +118,7 @@ class LiteLLMClient:
             name="litellm.chat_with_tools",
             as_type="generation",
             input_payload={
-                "messages": messages,
+                "messages": _redact_large_multimodal_payloads(messages),
                 "tools": tools,
                 "response_format": response_format,
             },
@@ -277,3 +280,33 @@ def _coerce_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _redact_large_multimodal_payloads(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    redacted: list[dict[str, Any]] = []
+    for message in messages:
+        clone = dict(message)
+        content = clone.get("content")
+        if isinstance(content, list):
+            clone["content"] = [_redact_content_part(part) for part in content]
+        redacted.append(clone)
+    return redacted
+
+
+def _redact_content_part(part: Any) -> Any:
+    if not isinstance(part, dict):
+        return part
+    clone = dict(part)
+    source = clone.get("source")
+    if isinstance(source, dict) and isinstance(source.get("data"), str):
+        source_clone = dict(source)
+        source_clone["data"] = f"<base64 redacted; {len(source['data'])} chars>"
+        clone["source"] = source_clone
+    image_url = clone.get("image_url")
+    if isinstance(image_url, dict) and isinstance(image_url.get("url"), str):
+        url = image_url["url"]
+        if url.startswith("data:"):
+            image_clone = dict(image_url)
+            image_clone["url"] = f"<data URL redacted; {len(url)} chars>"
+            clone["image_url"] = image_clone
+    return clone

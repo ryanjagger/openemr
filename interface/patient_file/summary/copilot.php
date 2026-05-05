@@ -78,9 +78,24 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
             <section id="oe-ai-agent-chat-panel"
                 data-pid="<?php echo attr((string) $pid); ?>"
                 data-csrf="<?php echo attr($apiCsrfToken); ?>">
+                <div class="border rounded p-3 mb-3 bg-light" id="oe-ai-agent-doc-ingestion">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <strong><?php echo xlt('Uploaded document context'); ?></strong>
+                        <button type="button" class="btn btn-sm btn-secondary" id="oe-ai-agent-doc-load">
+                            <?php echo xlt('Load recent documents'); ?>
+                        </button>
+                    </div>
+                    <div id="oe-ai-agent-doc-status" class="small text-muted mb-2">
+                        <?php echo xlt('Ingest recent PDF/PNG lab reports or intake forms before asking about them.'); ?>
+                    </div>
+                    <div id="oe-ai-agent-doc-list" class="mb-2"></div>
+                    <button type="button" class="btn btn-sm btn-primary d-none" id="oe-ai-agent-doc-ingest">
+                        <?php echo xlt('Ingest selected documents'); ?>
+                    </button>
+                </div>
                 <div id="oe-ai-agent-chat-log" class="mb-3">
                     <div class="text-muted small">
-                        <?php echo xlt("Ask a question grounded in this patient's chart. The agent will not give clinical advice."); ?>
+                        <?php echo xlt("Ask a question grounded in this patient's chart and indexed documents. The agent summarizes evidence, not treatment orders."); ?>
                     </div>
                 </div>
                 <form id="oe-ai-agent-chat-form" class="d-flex" autocomplete="off">

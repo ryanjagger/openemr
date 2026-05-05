@@ -16,12 +16,15 @@ from oe_ai_agent.auth import require_internal_auth
 from oe_ai_agent.config import load_settings
 from oe_ai_agent.conversation import TurnLimitError, get_default_store
 from oe_ai_agent.llm import LiteLLMClient, LlmClient, MockLlmClient
+from oe_ai_agent.llm.document_extraction import extract_document_with_llm, to_response
 from oe_ai_agent.observability import (
     bind_request_context,
     configure_logging,
+    current_trace,
     get_logger,
     langfuse_request_trace,
     shutdown_langfuse,
+    step,
     use_trace,
 )
 from oe_ai_agent.observability.trace import TraceCollector, clear_request_context
@@ -30,9 +33,12 @@ from oe_ai_agent.schemas import (
     BriefResponse,
     ChatRequest,
     ChatTurnResponse,
+    DocumentExtractionRequest,
+    DocumentExtractionResponse,
 )
 from oe_ai_agent.schemas.brief import VerificationFailure
 from oe_ai_agent.schemas.observability import ResponseMeta, StepEntry, UsageBlock
+from oe_ai_agent.schemas.tool_results import TypedRow
 
 configure_logging()
 logger = get_logger(__name__)
@@ -104,20 +110,23 @@ async def brief(request: BriefRequest) -> BriefResponse:
         session_id=request.session_id,
     )
     try:
-        async with use_trace() as trace, langfuse_request_trace(
-            name="brief.read",
-            request_id=request.request_id,
-            patient_uuid=request.patient_uuid,
-            model_id=model_id,
-            action="brief.read",
-            input_payload={
-                "patient_uuid": request.patient_uuid,
-                "fhir_base_url": request.fhir_base_url,
-            },
-            user_id=request.user_id,
-            session_id=request.session_id,
-            tags=["brief", "demo"],
-        ) as lf_trace:
+        async with (
+            use_trace() as trace,
+            langfuse_request_trace(
+                name="brief.read",
+                request_id=request.request_id,
+                patient_uuid=request.patient_uuid,
+                model_id=model_id,
+                action="brief.read",
+                input_payload={
+                    "patient_uuid": request.patient_uuid,
+                    "fhir_base_url": request.fhir_base_url,
+                },
+                user_id=request.user_id,
+                session_id=request.session_id,
+                tags=["brief", "demo"],
+            ) as lf_trace,
+        ):
             try:
                 final_state_dict = await _graph().ainvoke(initial)  # type: ignore[attr-defined]
             except Exception as exc:
@@ -192,22 +201,35 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
         session_id=request.session_id,
     )
     try:
-        async with use_trace() as trace, langfuse_request_trace(
-            name="chat.turn",
-            request_id=request.request_id,
-            conversation_id=entry.conversation_id,
-            patient_uuid=request.patient_uuid,
-            model_id=model_id,
-            action="chat.turn",
-            input_payload={
-                "patient_uuid": request.patient_uuid,
-                "conversation_id": entry.conversation_id,
-                "messages": [message.model_dump(mode="json") for message in request.messages],
-            },
-            user_id=request.user_id,
-            session_id=request.session_id,
-            tags=["chat", "demo"],
-        ) as lf_trace:
+        async with (
+            use_trace() as trace,
+            langfuse_request_trace(
+                name="chat.turn",
+                request_id=request.request_id,
+                conversation_id=entry.conversation_id,
+                patient_uuid=request.patient_uuid,
+                model_id=model_id,
+                action="chat.turn",
+                input_payload={
+                    "patient_uuid": request.patient_uuid,
+                    "conversation_id": entry.conversation_id,
+                    "messages": [message.model_dump(mode="json") for message in request.messages],
+                },
+                metadata={
+                    **_document_context_metadata(
+                        "incoming_document_context",
+                        list(request.document_context),
+                    ),
+                    **_document_context_metadata(
+                        "cached_context",
+                        list(entry.cached_context),
+                    ),
+                },
+                user_id=request.user_id,
+                session_id=request.session_id,
+                tags=["chat", "demo"],
+            ) as lf_trace,
+        ):
             try:
                 await store.increment_turn(entry.conversation_id)
             except TurnLimitError as exc:
@@ -225,9 +247,7 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
                     narrative="",
                     facts=[],
                     verification_failures=[
-                        VerificationFailure(
-                            rule="turn_limit_exceeded", detail=str(exc)
-                        ),
+                        VerificationFailure(rule="turn_limit_exceeded", detail=str(exc)),
                     ],
                     meta=meta,
                 )
@@ -244,7 +264,10 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
                 request_id=request.request_id,
                 conversation_id=entry.conversation_id,
                 history=list(request.messages),
-                cached_context=list(entry.cached_context),
+                cached_context=_merge_context(
+                    list(entry.cached_context),
+                    list(request.document_context),
+                ),
             )
             try:
                 final_state_dict = await _chat_graph().ainvoke(initial)  # type: ignore[attr-defined]
@@ -264,9 +287,7 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
                     narrative="",
                     facts=[],
                     verification_failures=[
-                        VerificationFailure(
-                            rule="agent_error", detail=_summarize_error(exc)
-                        ),
+                        VerificationFailure(rule="agent_error", detail=_summarize_error(exc)),
                     ],
                     meta=meta,
                 )
@@ -302,6 +323,66 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
                     "error_code": error_code,
                     "verified_fact_count": len(final.verified_facts),
                     "verification_failure_count": len(final.verification_failures),
+                },
+            )
+            return response
+    finally:
+        clear_request_context()
+
+
+@app.post("/v1/documents/extract", dependencies=[Depends(require_internal_auth)])
+async def extract_document(request: DocumentExtractionRequest) -> DocumentExtractionResponse:
+    model_id = _llm_client().model_id
+    bind_request_context(
+        request_id=request.request_id,
+        action="document.extract",
+        patient_uuid="",
+        model=model_id,
+    )
+    try:
+        async with (
+            use_trace() as trace,
+            langfuse_request_trace(
+                name="document.extract",
+                request_id=request.request_id,
+                patient_uuid="",
+                model_id=model_id,
+                action="document.extract",
+                input_payload={
+                    "document_uuid": request.document_uuid,
+                    "document_type": request.document_type,
+                    "filename": request.filename,
+                    "mime_type": request.mime_type,
+                    "content_size_base64": len(request.content_base64),
+                },
+                tags=["document-ingestion"],
+            ) as lf_trace,
+        ):
+            async with step(
+                "document.extract",
+                document_type=request.document_type,
+                mime_type=request.mime_type,
+            ) as record:
+                envelope, usage = await extract_document_with_llm(_llm_client(), request)
+                record.attrs["fact_count"] = len(envelope.facts)
+                collector = current_trace()
+                if collector is not None:
+                    collector.add_usage(usage)
+
+            meta = _build_meta(trace)
+            response = to_response(request, model_id, envelope, meta)
+            _emit_complete(
+                action="document.extract",
+                status="ok",
+                error_code=None,
+                meta=meta,
+            )
+            lf_trace.update(
+                output=response.model_dump_json_safe(),
+                metadata={
+                    "status": "ok",
+                    "fact_count": len(response.facts),
+                    "document_type": request.document_type,
                 },
             )
             return response
@@ -367,6 +448,48 @@ def _classify_chat_outcome(final: ChatState) -> tuple[str, str | None]:
     if any(rule.startswith("narrative_") or rule == "advisory_denylist" for rule in rules):
         return "denied", rules[0]
     return "partial", rules[0]
+
+
+def _merge_context(existing: list[TypedRow], incoming: list[TypedRow]) -> list[TypedRow]:
+    seen = {(row.resource_type, row.resource_id) for row in existing}
+    merged = list(existing)
+    for row in incoming:
+        key = (row.resource_type, row.resource_id)
+        if key in seen:
+            continue
+        merged.append(row)
+        seen.add(key)
+    return merged
+
+
+def _document_context_metadata(prefix: str, rows: list[TypedRow]) -> dict[str, object]:
+    document_rows = [
+        row
+        for row in rows
+        if row.resource_type in {"DocumentReference", "IndexedDocumentFact"}
+    ]
+    document_sources = [
+        str(row.fields.get("source"))
+        for row in document_rows
+        if row.fields.get("source") is not None
+    ]
+    document_types = sorted(
+        {
+            str(row.fields.get("document_type"))
+            for row in document_rows
+            if row.fields.get("document_type") is not None
+        }
+    )
+
+    return {
+        f"{prefix}_count": len(rows),
+        f"{prefix}_document_reference_count": len(document_rows),
+        f"{prefix}_indexed_manifest_count": document_sources.count(
+            "indexed_document_manifest"
+        ),
+        f"{prefix}_indexed_fact_count": document_sources.count("indexed_document_fact"),
+        f"{prefix}_document_types": document_types,
+    }
 
 
 def _summarize_error(exc: BaseException) -> str:

@@ -170,9 +170,14 @@ async def _execute_traced_tool(
             )
         else:
             tool_record.attrs["row_count"] = len(rows)
+            tool_record.attrs.update(_tool_result_metadata(rows))
             update_langfuse_observation(
                 output=payload,
-                metadata={"status": "ok", "row_count": len(rows)},
+                metadata={
+                    "status": "ok",
+                    "row_count": len(rows),
+                    **_tool_result_metadata(rows),
+                },
             )
         return rows, error, payload
 
@@ -207,6 +212,42 @@ def _sanitize_args(args: dict[str, object]) -> str:
     except (TypeError, ValueError):
         return "<unserializable>"
     return text if len(text) <= _TOOL_ARGS_MAX else text[:_TOOL_ARGS_MAX] + "…"
+
+
+def _tool_result_metadata(rows: list[TypedRow]) -> dict[str, object]:
+    document_rows = [
+        row
+        for row in rows
+        if row.resource_type in {"DocumentReference", "IndexedDocumentFact"}
+    ]
+    document_types = sorted(
+        {
+            str(row.fields.get("document_type"))
+            for row in document_rows
+            if row.fields.get("document_type") is not None
+        }
+    )
+    fact_types = sorted(
+        {
+            str(row.fields.get("fact_type"))
+            for row in document_rows
+            if row.fields.get("fact_type") is not None
+        }
+    )
+    document_uuids = sorted(
+        {
+            str(row.fields.get("document_uuid"))
+            for row in document_rows
+            if row.fields.get("document_uuid") is not None
+        }
+    )
+
+    return {
+        "document_reference_count": len(document_rows),
+        "document_count": len(document_uuids),
+        "document_types": document_types,
+        "fact_types": fact_types,
+    }
 
 
 def _merge_rows(existing: list[TypedRow], incoming: list[TypedRow]) -> list[TypedRow]:

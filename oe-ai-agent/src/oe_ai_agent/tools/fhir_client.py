@@ -61,6 +61,20 @@ class FhirClient:
             headers["X-Request-Id"] = self._request_id
         return headers
 
+    def _api_headers(self) -> dict[str, str]:
+        headers = {
+            "Authorization": f"Bearer {self._bearer_token}",
+            "Accept": "application/json",
+        }
+        if self._request_id is not None:
+            headers["X-Request-Id"] = self._request_id
+        return headers
+
+    def _api_base_url(self) -> str:
+        if self._base_url.endswith("/fhir"):
+            return self._base_url[: -len("/fhir")] + "/api"
+        return self._base_url.rstrip("/") + "/../api"
+
     async def search(
         self,
         resource_type: str,
@@ -75,18 +89,30 @@ class FhirClient:
         response = await self._client.get(url, headers=self._headers())
         return self._parse(response)
 
+    async def api_get(
+        self,
+        path: str,
+        params: dict[str, str | int] | None = None,
+    ) -> dict[str, Any]:
+        url = f"{self._api_base_url()}/{path.lstrip('/')}"
+        response = await self._client.get(url, headers=self._api_headers(), params=params or {})
+        return self._parse_json(response, "OpenEMR API")
+
     @staticmethod
     def _parse(response: httpx.Response) -> dict[str, Any]:
+        return FhirClient._parse_json(response, "FHIR")
+
+    @staticmethod
+    def _parse_json(response: httpx.Response, label: str) -> dict[str, Any]:
         if response.status_code != httpx.codes.OK:
             raise FhirError(
-                f"FHIR returned HTTP {response.status_code}",
+                f"{label} returned HTTP {response.status_code}",
                 status_code=response.status_code,
             )
         try:
             data = response.json()
         except ValueError as exc:
-            raise FhirError("FHIR response was not valid JSON") from exc
+            raise FhirError(f"{label} response was not valid JSON") from exc
         if not isinstance(data, dict):
-            raise FhirError("FHIR response was not a JSON object")
+            raise FhirError(f"{label} response was not a JSON object")
         return data
-

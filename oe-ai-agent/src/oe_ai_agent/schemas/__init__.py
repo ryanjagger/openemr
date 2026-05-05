@@ -13,6 +13,12 @@ from oe_ai_agent.schemas.chat import (
     ChatRole,
     ChatTurnResponse,
 )
+from oe_ai_agent.schemas.document_extraction import (
+    DocumentExtractionRequest,
+    DocumentExtractionResponse,
+    ExtractedDocumentFact,
+    SourceSnippet,
+)
 from oe_ai_agent.schemas.observability import ResponseMeta, StepEntry, UsageBlock
 from oe_ai_agent.schemas.tool_results import ToolError, TypedRow
 
@@ -25,7 +31,11 @@ __all__ = [
     "ChatRole",
     "ChatTurnResponse",
     "Citation",
+    "DocumentExtractionRequest",
+    "DocumentExtractionResponse",
+    "ExtractedDocumentFact",
     "ResponseMeta",
+    "SourceSnippet",
     "StepEntry",
     "ToolError",
     "TypedRow",

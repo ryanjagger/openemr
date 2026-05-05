@@ -33,11 +33,17 @@ CHAT_ALLOWED_TABLES_FOR_TYPE: dict[ChatFactType, frozenset[str]] = {
     ChatFactType.MEDICATION_CHANGE: frozenset({"MedicationRequest", "DocumentReference"}),
     ChatFactType.PROBLEM: frozenset({"Condition"}),
     ChatFactType.ALLERGY: frozenset({"AllergyIntolerance"}),
-    ChatFactType.LAB_RESULT: frozenset({"Observation", "DiagnosticReport"}),
+    ChatFactType.LAB_RESULT: frozenset(
+        {"Observation", "DiagnosticReport", "DocumentReference", "IndexedDocumentFact"}
+    ),
     ChatFactType.VITAL_SIGN: frozenset({"Observation"}),
-    ChatFactType.OBSERVATION: frozenset({"Observation"}),
+    ChatFactType.OBSERVATION: frozenset(
+        {"Observation", "DocumentReference", "IndexedDocumentFact"}
+    ),
     ChatFactType.ENCOUNTER: frozenset({"Encounter"}),
-    ChatFactType.NOTE: frozenset({"DocumentReference"}),
+    ChatFactType.NOTE: frozenset({"DocumentReference", "IndexedDocumentFact"}),
+    ChatFactType.INTAKE_ANSWER: frozenset({"IndexedDocumentFact", "DocumentReference"}),
+    ChatFactType.DOCUMENT_FACT: frozenset({"IndexedDocumentFact", "DocumentReference"}),
     ChatFactType.ORDER: frozenset({"ServiceRequest"}),
     ChatFactType.PROCEDURE: frozenset({"Procedure"}),
     ChatFactType.IMMUNIZATION: frozenset({"Immunization"}),
@@ -69,6 +75,8 @@ CHAT_MAX_AGE_DAYS_FOR_TYPE: dict[ChatFactType, int | None] = {
     ChatFactType.OBSERVATION: None,
     ChatFactType.ENCOUNTER: None,
     ChatFactType.NOTE: None,
+    ChatFactType.INTAKE_ANSWER: None,
+    ChatFactType.DOCUMENT_FACT: None,
     ChatFactType.ORDER: None,
     ChatFactType.PROCEDURE: None,
     ChatFactType.IMMUNIZATION: None,

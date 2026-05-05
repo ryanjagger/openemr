@@ -11,7 +11,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from oe_ai_agent.agent.nodes.verify_chat import _verify_chat_facts
 from oe_ai_agent.schemas.brief import BriefItem, BriefItemType, Citation
+from oe_ai_agent.schemas.chat import ChatFact, ChatFactType
 from oe_ai_agent.schemas.tool_results import TypedRow
 from oe_ai_agent.tools._common import to_typed_row
 from oe_ai_agent.verifier import verify_items
@@ -135,6 +137,104 @@ def test_typed_fact_reextraction_pass_when_number_present() -> None:
     rows = [_row("Observation", "obs-1", verbatim="creatinine 1.8 mg/dL")]
     item = _item(BriefItemType.OVERDUE, "creatinine 1.8 last check", [("Observation", "obs-1")])
     assert check_typed_fact_reextraction(item, rows) is None
+
+
+def test_chat_lab_result_can_cite_indexed_document_reference() -> None:
+    rows = [
+        _row(
+            "IndexedDocumentFact",
+            "doc-1",
+            fields={"source": "indexed_document_fact", "fact_type": "lab_result"},
+            verbatim="A1c 8.2 %",
+        )
+    ]
+    fact = ChatFact(
+        type=ChatFactType.LAB_RESULT,
+        text="A1c 8.2 %",
+        verbatim_excerpts=["A1c 8.2 %"],
+        citations=[Citation(resource_type="IndexedDocumentFact", resource_id="doc-1")],
+    )
+
+    verified, failures = _verify_chat_facts(
+        [fact],
+        rows,
+        expected_patient_uuid=PATIENT,
+        allowed_types=frozenset(ChatFactType),
+        now=NOW,
+    )
+
+    assert verified == [fact]
+    assert failures == []
+
+
+def test_chat_intake_answer_can_cite_indexed_document_fact() -> None:
+    rows = [
+        _row(
+            "IndexedDocumentFact",
+            "doc-1#fact-9",
+            fields={
+                "source": "indexed_document_fact",
+                "fact_type": "intake_answer",
+                "label": "Preferred pharmacy",
+                "value_text": "Main Street Pharmacy",
+            },
+            verbatim="Preferred pharmacy: Main Street Pharmacy",
+        )
+    ]
+    fact = ChatFact(
+        type=ChatFactType.INTAKE_ANSWER,
+        text="Patient reported preferred pharmacy: Main Street Pharmacy",
+        verbatim_excerpts=["Preferred pharmacy: Main Street Pharmacy"],
+        citations=[
+            Citation(resource_type="IndexedDocumentFact", resource_id="doc-1#fact-9")
+        ],
+    )
+
+    verified, failures = _verify_chat_facts(
+        [fact],
+        rows,
+        expected_patient_uuid=PATIENT,
+        allowed_types=frozenset(ChatFactType),
+        now=NOW,
+    )
+
+    assert verified == [fact]
+    assert failures == []
+
+
+def test_chat_medication_cannot_cite_intake_document_fact_as_structured_med() -> None:
+    rows = [
+        _row(
+            "IndexedDocumentFact",
+            "doc-1#fact-10",
+            fields={
+                "source": "indexed_document_fact",
+                "fact_type": "intake_answer",
+                "label": "Medication",
+                "value_text": "Lisinopril 10 mg",
+            },
+            verbatim="Medication: Lisinopril 10 mg",
+        )
+    ]
+    fact = ChatFact(
+        type=ChatFactType.MEDICATION,
+        text="Medication: Lisinopril 10 mg",
+        verbatim_excerpts=["Medication: Lisinopril 10 mg"],
+        citations=[
+            Citation(resource_type="IndexedDocumentFact", resource_id="doc-1#fact-10")
+        ],
+    )
+
+    verified, failures = _verify_chat_facts(
+        [fact],
+        rows,
+        expected_patient_uuid=PATIENT,
+        allowed_types=frozenset(ChatFactType),
+        now=NOW,
+    )
+
+    assert verified == []
+    assert failures[0].rule == "tier1_type_table_compatibility"
 
 
 def test_typed_fact_reextraction_pass_when_structured_number_equivalent() -> None:

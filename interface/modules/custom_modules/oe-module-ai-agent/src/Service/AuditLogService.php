@@ -31,6 +31,7 @@ final class AuditLogService
 {
     public const ACTION_BRIEF_READ = 'brief.read';
     public const ACTION_CHAT_TURN = 'chat.turn';
+    public const ACTION_DOCUMENT_EXTRACT = 'document.extract';
 
     public function __construct(
         private readonly string $hmacSecret,

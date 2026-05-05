@@ -24,6 +24,7 @@ use OpenEMR\Modules\AiAgent\DTO\LlmCallVerificationStatus;
 use OpenEMR\Modules\AiAgent\DTO\ResponseMeta;
 use OpenEMR\Modules\AiAgent\Service\AuditLogService;
 use OpenEMR\Modules\AiAgent\Service\BearerTokenMinter;
+use OpenEMR\Modules\AiAgent\Service\DocumentIngestionRepository;
 use OpenEMR\Modules\AiAgent\Service\PatientAccessValidator;
 use OpenEMR\Modules\AiAgent\Service\SidecarClient;
 use Ramsey\Uuid\Uuid;
@@ -36,6 +37,7 @@ final class ChatController
         private readonly PatientAccessValidator $patientAccessValidator,
         private readonly BearerTokenMinter $bearerTokenMinter,
         private readonly AuditLogService $auditLogService,
+        private readonly DocumentIngestionRepository $documentIngestionRepository,
     ) {
     }
 
@@ -46,6 +48,7 @@ final class ChatController
             new PatientAccessValidator(),
             BearerTokenMinter::default(),
             AuditLogService::default(),
+            new DocumentIngestionRepository(),
         );
     }
 
@@ -140,7 +143,7 @@ final class ChatController
         try {
             $bearerToken = $this->bearerTokenMinter->mintForUser(
                 $userUuid,
-                BearerTokenMinter::FHIR_READ_SCOPES,
+                BearerTokenMinter::CHAT_READ_SCOPES,
             );
         } catch (Throwable $e) {
             error_log('oe-module-ai-agent: token mint failed: ' . $e->getMessage());
@@ -163,6 +166,17 @@ final class ChatController
 
         $fhirBaseUrl = (string) (getenv('AI_AGENT_FHIR_BASE_URL')
             ?: 'http://openemr/apis/default/fhir');
+        $documentContext = $patientId > 0
+            ? $this->documentIngestionRepository->documentManifestContextRows($patientId, $patientUuid)
+            : [];
+        $requestHash = $this->hashCanonical([
+            'pid' => $pid,
+            'request_id' => $requestId,
+            'conversation_id' => $conversationId,
+            'message_count' => count($messages),
+            'document_context_count' => count($documentContext),
+            'document_context_hash' => $this->hashCanonical($documentContext),
+        ]);
 
         $chatRequest = new ChatRequest(
             patientUuid: $patientUuid,
@@ -171,6 +185,7 @@ final class ChatController
             requestId: $requestId,
             conversationId: $conversationId,
             messages: $messages,
+            documentContext: $documentContext,
             userId: $userUuid,
         );
 

@@ -51,6 +51,13 @@ final class BearerTokenMinter
         'user/Immunization.read',
     ];
 
+    /** @var list<string> */
+    public const CHAT_READ_SCOPES = [
+        ...self::FHIR_READ_SCOPES,
+        'api:oemr',
+        'user/document.read',
+    ];
+
     public function __construct(
         private readonly ClientRepository $clientRepository,
         private readonly AccessTokenRepository $accessTokenRepository,
