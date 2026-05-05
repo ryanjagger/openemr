@@ -54,7 +54,10 @@ class MockLlmClient:
         self,
         messages: list[dict[str, Any]],
         response_format: dict[str, Any] | None = None,
+        *,
+        max_tokens: int | None = None,
     ) -> LlmCompletionResult:
+        del max_tokens
         if self._scripted is None:
             raise RuntimeError(
                 "MockLlmClient.chat() called without a scripted responder",

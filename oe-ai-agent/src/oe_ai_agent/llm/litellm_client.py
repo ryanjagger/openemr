@@ -53,8 +53,11 @@ class LiteLLMClient:
         self,
         messages: list[dict[str, Any]],
         response_format: dict[str, Any] | None = None,
+        *,
+        max_tokens: int | None = None,
     ) -> LlmCompletionResult:
-        kwargs = self._base_kwargs(messages)
+        effective_max_tokens = max_tokens or self._max_tokens
+        kwargs = self._base_kwargs(messages, max_tokens=effective_max_tokens)
         if response_format is not None:
             kwargs["response_format"] = response_format
 
@@ -66,7 +69,7 @@ class LiteLLMClient:
                 "response_format": response_format,
             },
             model=self._model,
-            model_parameters={"max_tokens": self._max_tokens},
+            model_parameters={"max_tokens": effective_max_tokens},
         ) as generation:
             started = time.monotonic_ns()
             try:
@@ -151,11 +154,16 @@ class LiteLLMClient:
             usage=usage,
         )
 
-    def _base_kwargs(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+    def _base_kwargs(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        max_tokens: int | None = None,
+    ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "model": self._model,
             "messages": messages,
-            "max_tokens": self._max_tokens,
+            "max_tokens": max_tokens or self._max_tokens,
         }
         if self._api_key is not None:
             kwargs["api_key"] = self._api_key

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -24,6 +25,10 @@ class _ExtractionEnvelope(BaseModel):
     facts: list[ExtractedDocumentFact] = Field(default_factory=list)
 
 
+class DocumentExtractionParseError(ValueError):
+    """Raised when the model returns invalid extraction JSON."""
+
+
 async def extract_document_with_llm(
     llm: LlmClient,
     request: DocumentExtractionRequest,
@@ -41,12 +46,15 @@ async def extract_document_with_llm(
     result = await llm.chat(
         _build_messages(request, model_id=llm.model_id),
         response_format=_response_format(),
+        max_tokens=_document_max_tokens(),
     )
     try:
         decoded = json.loads(result.content)
         envelope = _ExtractionEnvelope.model_validate(decoded)
     except (json.JSONDecodeError, ValidationError) as exc:
-        raise ValueError("document extraction response was not valid extraction JSON") from exc
+        raise DocumentExtractionParseError(
+            "document extraction response was not valid extraction JSON",
+        ) from exc
 
     return envelope, result.usage
 
@@ -257,3 +265,14 @@ def to_response(
         facts=envelope.facts,
         meta=meta,
     )
+
+
+def _document_max_tokens() -> int:
+    raw = os.environ.get("AI_AGENT_DOCUMENT_MAX_TOKENS")
+    if raw is None or raw.strip() == "":
+        return 8192
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return 8192
+    return max(1024, parsed)

@@ -121,6 +121,7 @@ final class SidecarClient
             $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
             if ($status !== 200) {
                 $raw = $response->getContent(throw: false);
+                $errorDetail = self::errorDetailFromBody($raw);
                 $this->logger->warning('sidecar.request.http_error', [
                     'path' => $path,
                     'request_id' => $requestId,
@@ -128,7 +129,11 @@ final class SidecarClient
                     'latency_ms' => $latencyMs,
                     'body_preview' => substr($raw, 0, 400),
                 ]);
-                throw new RuntimeException("Sidecar returned HTTP {$status}");
+                $message = "Sidecar returned HTTP {$status}";
+                if ($errorDetail !== null) {
+                    $message .= ": {$errorDetail}";
+                }
+                throw new RuntimeException($message);
             }
             /** @var array<string, mixed> $decoded */
             $decoded = json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR);
@@ -160,5 +165,34 @@ final class SidecarClient
         }
 
         return max(1.0, (float) $raw);
+    }
+
+    private static function errorDetailFromBody(string $body): ?string
+    {
+        try {
+            $decoded = json_decode($body, true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return null;
+        }
+        if (!is_array($decoded)) {
+            return null;
+        }
+
+        $detail = $decoded['detail'] ?? $decoded['error'] ?? null;
+        if (is_string($detail) && $detail !== '') {
+            return substr($detail, 0, 240);
+        }
+        if (!is_array($detail)) {
+            return null;
+        }
+
+        $parts = [];
+        foreach (['error', 'request_id'] as $key) {
+            if (is_string($detail[$key] ?? null) && $detail[$key] !== '') {
+                $parts[] = $key . '=' . $detail[$key];
+            }
+        }
+
+        return $parts === [] ? null : substr(implode(' ', $parts), 0, 240);
     }
 }

@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import cache
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 
 from oe_ai_agent.agent.chat_state import ChatState
 from oe_ai_agent.agent.graph import build_graph
@@ -16,7 +16,11 @@ from oe_ai_agent.auth import require_internal_auth
 from oe_ai_agent.config import load_settings
 from oe_ai_agent.conversation import TurnLimitError, get_default_store
 from oe_ai_agent.llm import LiteLLMClient, LlmClient, MockLlmClient
-from oe_ai_agent.llm.document_extraction import extract_document_with_llm, to_response
+from oe_ai_agent.llm.document_extraction import (
+    DocumentExtractionParseError,
+    extract_document_with_llm,
+    to_response,
+)
 from oe_ai_agent.observability import (
     bind_request_context,
     configure_logging,
@@ -363,7 +367,17 @@ async def extract_document(request: DocumentExtractionRequest) -> DocumentExtrac
                 document_type=request.document_type,
                 mime_type=request.mime_type,
             ) as record:
-                envelope, usage = await extract_document_with_llm(_llm_client(), request)
+                try:
+                    envelope, usage = await extract_document_with_llm(_llm_client(), request)
+                except DocumentExtractionParseError as exc:
+                    record.attrs["error_code"] = "document_extraction_invalid_json"
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
+                            "error": "document_extraction_invalid_json",
+                            "request_id": request.request_id,
+                        },
+                    ) from exc
                 record.attrs["fact_count"] = len(envelope.facts)
                 collector = current_trace()
                 if collector is not None:

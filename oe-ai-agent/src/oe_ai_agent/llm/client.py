@@ -87,6 +87,8 @@ class LlmClient(Protocol):
         self,
         messages: list[dict[str, Any]],
         response_format: dict[str, Any] | None = None,
+        *,
+        max_tokens: int | None = None,
     ) -> LlmCompletionResult:
         """Return the assistant's reply plus usage metrics."""
         ...

@@ -129,6 +129,7 @@ Canonical example: `tools/active_medications.py`. Checklist:
 | `LLM_PROVIDER` | `mock` (default) or `anthropic` | no |
 | `LLM_MODEL` | LiteLLM model id (e.g. `anthropic/claude-sonnet-4-6`) | no |
 | `LLM_MAX_TOKENS` | Completion cap (default 4096) | no |
+| `AI_AGENT_DOCUMENT_MAX_TOKENS` | Document extraction completion cap (default 8192) | no |
 | `ANTHROPIC_API_KEY` | Required when `LLM_PROVIDER=anthropic` | conditional |
 | `AI_AGENT_ENABLE_FREETEXT_TYPES` | Gate `recent_event` / `agenda_item` | no |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | Prod observability | no |

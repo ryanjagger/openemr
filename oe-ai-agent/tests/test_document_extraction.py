@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from oe_ai_agent.llm.client import LlmUsage
+import json
+from typing import Any
+
+from oe_ai_agent.llm.client import LlmCompletionResult, LlmUsage
 from oe_ai_agent.llm.document_extraction import _build_messages, extract_document_with_llm
 from oe_ai_agent.llm.mock_client import MockLlmClient
 from oe_ai_agent.schemas.document_extraction import DocumentExtractionRequest
@@ -53,3 +56,39 @@ def test_anthropic_png_message_uses_image_block() -> None:
     image_block = content[1]
     assert image_block["type"] == "image"
     assert image_block["source"]["media_type"] == "image/png"
+
+
+async def test_live_document_extraction_uses_larger_document_token_budget() -> None:
+    llm = _CapturingLlm()
+
+    envelope, _usage = await extract_document_with_llm(llm, _request())
+
+    assert envelope.facts == []
+    assert llm.max_tokens == 8192
+
+
+class _CapturingLlm:
+    model_id = "anthropic/claude-sonnet-4-6"
+
+    def __init__(self) -> None:
+        self.max_tokens: int | None = None
+
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        response_format: dict[str, Any] | None = None,
+        *,
+        max_tokens: int | None = None,
+    ) -> LlmCompletionResult:
+        del messages, response_format
+        self.max_tokens = max_tokens
+        return LlmCompletionResult(
+            content=json.dumps(
+                {
+                    "document_summary": "No facts.",
+                    "extraction_confidence": 1.0,
+                    "facts": [],
+                }
+            ),
+            usage=LlmUsage(),
+        )
