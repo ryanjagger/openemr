@@ -64,10 +64,12 @@
     }
 
     function loadRecentDocuments() {
-        if (!docLoadBtn || !docList || !docIngestBtn) {
+        if (!docList || !docIngestBtn) {
             return;
         }
-        docLoadBtn.disabled = true;
+        if (docLoadBtn) {
+            docLoadBtn.disabled = true;
+        }
         docIngestBtn.classList.add('d-none');
         docList.textContent = '';
         setDocStatus('Loading recent PDF/PNG documents...', false);
@@ -89,7 +91,9 @@
         }).catch(function () {
             setDocStatus(ERROR_COPY.network, true);
         }).finally(function () {
-            docLoadBtn.disabled = false;
+            if (docLoadBtn) {
+                docLoadBtn.disabled = false;
+            }
         });
     }
 
@@ -109,11 +113,29 @@
 
             var nameCell = document.createElement('td');
             var title = document.createElement('div');
-            title.textContent = doc.filename || ('Document ' + doc.id);
+            var filename = document.createElement('span');
+            filename.textContent = doc.filename || ('Document ' + doc.id);
+            title.appendChild(filename);
+            if (doc.already_ingested) {
+                var indexedBadge = document.createElement('span');
+                indexedBadge.className = 'badge badge-success ml-2';
+                indexedBadge.setAttribute('title', 'Already ingested');
+                var check = document.createElement('i');
+                check.className = 'fa fa-check mr-1';
+                check.setAttribute('aria-hidden', 'true');
+                indexedBadge.appendChild(check);
+                indexedBadge.appendChild(document.createTextNode('Indexed'));
+                title.appendChild(indexedBadge);
+            }
             nameCell.appendChild(title);
             var meta = document.createElement('div');
             meta.className = 'small text-muted';
-            meta.textContent = [doc.docdate, doc.category_name, doc.mimetype].filter(Boolean).join(' · ');
+            meta.textContent = [
+                doc.docdate,
+                doc.category_name,
+                doc.mimetype,
+                indexedSummary(doc)
+            ].filter(Boolean).join(' · ');
             nameCell.appendChild(meta);
             tr.appendChild(nameCell);
 
@@ -132,12 +154,6 @@
                 option.textContent = optionPair[1];
                 select.appendChild(option);
             });
-            var lowerName = String(doc.filename || '').toLowerCase();
-            if (lowerName.indexOf('lab') !== -1) {
-                select.value = 'lab_report';
-            } else if (lowerName.indexOf('intake') !== -1 || lowerName.indexOf('form') !== -1) {
-                select.value = 'intake_form';
-            }
             typeCell.appendChild(select);
             tr.appendChild(typeCell);
             tbody.appendChild(tr);
@@ -146,6 +162,20 @@
         docList.appendChild(table);
         docIngestBtn.classList.remove('d-none');
         setDocStatus('Confirm each document type, then ingest the selected documents.', false);
+    }
+
+    function indexedSummary(doc) {
+        if (!doc.already_ingested) {
+            return null;
+        }
+        var parts = ['indexed'];
+        if (doc.indexed_document_type) {
+            parts.push(String(doc.indexed_document_type).replace('_', ' '));
+        }
+        if (doc.indexed_fact_count) {
+            parts.push(String(doc.indexed_fact_count) + ' facts');
+        }
+        return parts.join(' · ');
     }
 
     function selectedDocumentsForIngestion() {
@@ -551,4 +581,5 @@
     if (docIngestBtn) {
         docIngestBtn.addEventListener('click', startDocumentIngestion);
     }
+    loadRecentDocuments();
 })();

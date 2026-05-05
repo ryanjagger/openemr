@@ -51,6 +51,8 @@ final class DocumentIngestionRepository
         int $days = 30,
         int $limit = 25,
     ): array {
+        $this->schema->ensureInstalled();
+
         $since = (new DateTimeImmutable('now', new DateTimeZone('UTC')))
             ->modify('-' . max(1, $days) . ' days')
             ->format('Y-m-d');
@@ -100,7 +102,7 @@ final class DocumentIngestionRepository
             $seenDocuments[$documentId] = true;
         }
 
-        return $documents;
+        return $this->withIndexedStatus($documents, $patientId);
     }
 
     /**
@@ -645,6 +647,59 @@ final class DocumentIngestionRepository
             'docdate' => $this->nullableDate($row['docdate'] ?? null),
             'category_name' => $this->nullableString($row['category_name'] ?? null),
         ];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $documents
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function withIndexedStatus(array $documents, int $patientId): array
+    {
+        if ($documents === []) {
+            return [];
+        }
+
+        $documentIds = array_values(array_unique(array_map(
+            static fn (array $document): int => (int) $document['id'],
+            $documents,
+        )));
+        $placeholders = implode(', ', array_fill(0, count($documentIds), '?'));
+        $rows = QueryUtils::fetchRecords(
+            'SELECT facts.`document_id`, facts.`document_type`, COUNT(*) AS `fact_count`, '
+            . 'MAX(did.`updated_at`) AS `indexed_at` '
+            . 'FROM `ai_document_facts` facts '
+            . 'JOIN ('
+            . '  SELECT `document_id`, MAX(`id`) AS `latest_id` '
+            . '  FROM `ai_document_ingestion_documents` '
+            . '  WHERE `patient_id` = ? AND `status` = "completed" '
+            . '  GROUP BY `document_id`'
+            . ') latest ON latest.document_id = facts.document_id '
+            . 'JOIN `ai_document_ingestion_documents` did ON did.id = latest.latest_id '
+            . 'WHERE facts.`patient_id` = ? AND facts.`document_id` IN (' . $placeholders . ') '
+            . 'GROUP BY facts.`document_id`, facts.`document_type`',
+            [$patientId, $patientId, ...$documentIds],
+            true,
+        );
+
+        $statusByDocumentId = [];
+        foreach ($rows as $row) {
+            $statusByDocumentId[(int) $row['document_id']] = [
+                'document_type' => $this->nullableString($row['document_type'] ?? null),
+                'fact_count' => (int) ($row['fact_count'] ?? 0),
+                'indexed_at' => $this->isoDateTime($row['indexed_at'] ?? null),
+            ];
+        }
+
+        return array_map(function (array $document) use ($statusByDocumentId): array {
+            $status = $statusByDocumentId[(int) $document['id']] ?? null;
+            $document['already_ingested'] = $status !== null && (int) $status['fact_count'] > 0;
+            $document['indexed_document_type'] = $status['document_type'] ?? null;
+            $document['indexed_fact_count'] = $status['fact_count'] ?? 0;
+            $document['indexed_at'] = $status['indexed_at'] ?? null;
+
+            return $document;
+        }, $documents);
     }
 
     /**

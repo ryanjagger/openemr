@@ -79,14 +79,11 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
                 data-pid="<?php echo attr((string) $pid); ?>"
                 data-csrf="<?php echo attr($apiCsrfToken); ?>">
                 <div class="border rounded p-3 mb-3 bg-light" id="oe-ai-agent-doc-ingestion">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <strong><?php echo xlt('Uploaded document context'); ?></strong>
-                        <button type="button" class="btn btn-sm btn-secondary" id="oe-ai-agent-doc-load">
-                            <?php echo xlt('Load recent documents'); ?>
-                        </button>
+                    <div class="mb-2">
+                        <strong><?php echo xlt('Recent Documents'); ?></strong>
                     </div>
                     <div id="oe-ai-agent-doc-status" class="small text-muted mb-2">
-                        <?php echo xlt('Ingest recent PDF/PNG lab reports or intake forms before asking about them.'); ?>
+                        <?php echo xlt('Loading recent PDF/PNG documents...'); ?>
                     </div>
                     <div id="oe-ai-agent-doc-list" class="mb-2"></div>
                     <button type="button" class="btn btn-sm btn-primary d-none" id="oe-ai-agent-doc-ingest">
@@ -117,7 +114,7 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
     <?php $oemr_ui->oeBelowContainerDiv(); ?>
 </div>
 
-<script src="<?php echo attr($publicPath); ?>/js/chat_panel.js?v=0.6.0"></script>
+<script src="<?php echo attr($publicPath); ?>/js/chat_panel.js?v=0.6.3"></script>
 
 </body>
 </html>
