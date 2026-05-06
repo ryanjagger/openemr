@@ -3,12 +3,11 @@ set -euo pipefail
 
 DEFAULT_PROJECT_ID="1dcb624a-bc85-4329-912e-ca2beb04a2c1"
 DEFAULT_PROJECT_NAME="deploy3"
-DEFAULT_ENVIRONMENT="production"
 
 target="${1:-}"
 project_id="$DEFAULT_PROJECT_ID"
 project_name="$DEFAULT_PROJECT_NAME"
-environment="$DEFAULT_ENVIRONMENT"
+environment=""
 message=""
 dry_run="false"
 keep_stage="false"
@@ -19,24 +18,24 @@ usage() {
 Manually deploy OpenEMR services to the deploy3 Railway project.
 
 Usage:
-  tools/railway/deploy.sh openemr [options]
-  tools/railway/deploy.sh oe-ai-agent [options]
-  tools/railway/deploy.sh all [options]
+  tools/railway/deploy.sh openemr --environment NAME [options]
+  tools/railway/deploy.sh oe-ai-agent --environment NAME [options]
+  tools/railway/deploy.sh all --environment NAME [options]
 
 Options:
+  --environment NAME     Railway environment (REQUIRED). Typical values: staging, production
   --message TEXT         Deployment message. Defaults to "Manual deploy <service>: <git-sha>"
   --project-id ID        Railway project ID. Default: deploy3 project ID
   --project-name NAME    Required linked Railway project name. Default: deploy3
-  --environment NAME     Railway environment. Default: production
   --dry-run              Build staging directories and print railway up commands without deploying
   --force                Force a rebuild by adding a timestamp label to the staged Dockerfile
   --keep-stage           Keep temporary staging directories after deploy
   -h, --help             Show this help
 
 Examples:
-  tools/railway/deploy.sh openemr
-  tools/railway/deploy.sh oe-ai-agent --message "Deploy agent prompt changes"
-  tools/railway/deploy.sh all
+  tools/railway/deploy.sh openemr --environment staging
+  tools/railway/deploy.sh oe-ai-agent --environment production --message "Deploy agent prompt changes"
+  tools/railway/deploy.sh all --environment staging
 USAGE
 }
 
@@ -110,6 +109,8 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+[[ -n "$environment" ]] || die "--environment is required (e.g. --environment staging or --environment production)"
 
 require_command git
 require_command jq
@@ -210,6 +211,7 @@ run_railway_up() {
     deploy_message="$(deploy_message_for "$service")"
 
     info "staged $service at $path ($(du -sh "$path" | awk '{print $1}'))"
+    info "deploying to environment: $environment"
     if [[ "$force" == "true" ]]; then
         info "force enabled for $service; staged Dockerfile includes a timestamp label"
     fi

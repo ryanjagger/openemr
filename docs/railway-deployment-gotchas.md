@@ -20,17 +20,22 @@ deploy without custom Dockerfiles.
 Manual deploys are wrapped by:
 
 ```sh
-tools/railway/deploy.sh openemr
-tools/railway/deploy.sh oe-ai-agent
-tools/railway/deploy.sh all
+tools/railway/deploy.sh openemr     --environment staging
+tools/railway/deploy.sh oe-ai-agent --environment production
+tools/railway/deploy.sh all         --environment staging
 ```
 
-The script creates the small staging directories described below and pushes
-them with `railway up`; it also guards that the linked Railway project is
-`deploy3` before deploying. If Railway reports "no changes detected in watch
-paths" but you intentionally want a new image, pass `--force`; this modifies
-only the temporary staged Dockerfile with a timestamp label and leaves the
-worktree unchanged.
+`--environment` is **required** — there is no default. Forgetting the flag
+exits non-zero before anything is deployed, so you can't accidentally land in
+prod. The script creates the small staging directories described below and
+pushes them with `railway up`; it also guards that the linked Railway project
+is `deploy3` before deploying. If Railway reports "no changes detected in
+watch paths" but you intentionally want a new image, pass `--force`; this
+modifies only the temporary staged Dockerfile with a timestamp label and
+leaves the worktree unchanged.
+
+See "Staging environment" at the bottom of this doc for the full multi-env
+operating model.
 
 ## 1. The empty volume shadows the image's site template
 
@@ -462,3 +467,84 @@ railway ssh --service oe-ai-agent -- printenv RAILWAY_DOCKERFILE_PATH
 Then redeploy the failed sidecar build (or push a no-op change under
 `oe-ai-agent/`) and confirm the build log loads `oe-ai-agent/Dockerfile`,
 not `Dockerfile.railway`.
+
+## Staging environment
+
+The `deploy3` project hosts two environments: `production` and `staging`.
+Both run the same three services (`openemr`, `oe-ai-agent`, `mariadb`) from
+the same Dockerfiles, but with independent volumes, MariaDB data, public
+domains, and a few env-var differences.
+
+### Deploying
+
+```sh
+# Staging
+tools/railway/deploy.sh openemr     --environment staging
+tools/railway/deploy.sh oe-ai-agent --environment staging
+tools/railway/deploy.sh all         --environment staging
+
+# Production
+tools/railway/deploy.sh all --environment production
+```
+
+`--environment` has no default — `deploy.sh` exits with `--environment is
+required …` if omitted. Each deploy logs `[railway-deploy] deploying to
+environment: <name>` so the target is unambiguous in the build log.
+
+### What's the same vs. different across environments
+
+Same: Dockerfile.railway, railway-entrypoint.sh, railway.json, the sidecar
+Dockerfile, the source overlaid into the staged image. Anything in git is
+identical.
+
+Different (set per-environment in the Railway dashboard, **never in git**):
+- Public domains (`openemr-staging-*.up.railway.app` vs.
+  `openemr-production-*.up.railway.app`).
+- `INTERNAL_AUTH_SECRET` — staging uses a separate value so a leaked
+  staging secret can't authenticate to prod's sidecar.
+- Any env var that hardcodes a public domain (audit on every duplicate).
+- Volume contents (sites/) and MariaDB data — fresh per environment.
+
+Cross-service env vars that use the internal `*.railway.internal` hostname
+(`AI_AGENT_SIDECAR_URL`, `OPENEMR_FHIR_BASE`) are env-scoped by Railway and
+do **not** need to differ between staging and production.
+
+### First boot in a new environment
+
+Same ~8-minute auto-installer pause as a fresh production deploy
+(see "Healthcheck timeout vs. OpenEMR's first-boot installer" above) —
+the staging volume is empty, so OpenEMR runs the full installer once.
+Subsequent staging deploys are ~1 minute.
+
+The auto-installer in a fresh environment also generates a fresh `admin`
+password; read it from the staging `openemr` service env vars or the build
+log, not from prod.
+
+### Don't forget the targetPort fix on new domains
+
+The auto-generated public domain on each new staging service inherits the
+same `targetPort: null` bug described in
+"Service-domain `targetPort` can be silently null" above. Apply the
+GraphQL `serviceDomainUpdate` mutation **once per new service domain**:
+
+- `staging.openemr` → `targetPort: 80`
+- `staging.oe-ai-agent` → `targetPort: 8000`
+
+Verify by `curl -i https://<staging-domain>/`. A correct response is `302`
+to `/interface/login/login.php?site=default` with no `x-railway-fallback:
+true` header. If the fallback header is present, the targetPort fix didn't
+land — re-apply.
+
+### Seeding staging with demo patients
+
+`tools/railway/import-synthea-demo-patients.sh` writes to whichever
+environment the Railway CLI is currently linked to. **Switch first**, or
+demo patients will land in production:
+
+```sh
+railway environment staging
+RAILWAY_OPENEMR_SERVICE=openemr tools/railway/import-synthea-demo-patients.sh
+```
+
+Confirm by viewing the patient list in the staging UI; the synthea names
+are recognizable (e.g. `Aaron697 Powlowski762`).

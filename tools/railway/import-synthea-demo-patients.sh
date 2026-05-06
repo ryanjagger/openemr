@@ -240,8 +240,12 @@ generate_ccda_tarball() {
     docker compose -f "$compose_file" up --detach --wait
 
     info "clearing previous local Synthea CCDA output"
+    # Don't pre-create /root/synthea — the dev tools' lazy-install gate is
+    # `if [[ ! -d /root/synthea ]]`, and creating it here makes a fresh
+    # container appear "already installed" and skip the apk-add + jar
+    # download. Synthea will create the output dir itself when it runs.
     docker compose -f "$compose_file" exec -T openemr \
-        sh -lc 'rm -rf /root/synthea/output/ccda && mkdir -p /root/synthea/output/ccda'
+        sh -lc 'rm -rf /root/synthea/output/ccda'
 
     info "generating and locally importing $count Synthea patients via /root/devtools"
     docker compose -f "$compose_file" exec -T openemr \
