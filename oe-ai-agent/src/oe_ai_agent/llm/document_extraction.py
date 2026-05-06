@@ -163,15 +163,12 @@ def _document_block(request: DocumentExtractionRequest, *, model_id: str) -> dic
                     "data": request.content_base64,
                 },
             }
-        return {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": request.mime_type,
-                "data": request.content_base64,
-            },
-        }
+        return _image_url_block(request)
 
+    return _image_url_block(request)
+
+
+def _image_url_block(request: DocumentExtractionRequest) -> dict[str, Any]:
     return {
         "type": "image_url",
         "image_url": {

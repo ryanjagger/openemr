@@ -48,14 +48,14 @@ def test_anthropic_pdf_message_uses_document_block() -> None:
     assert document_block["source"]["data"] == "cGRmLWJ5dGVz"
 
 
-def test_anthropic_png_message_uses_image_block() -> None:
+def test_anthropic_png_message_uses_image_url_block() -> None:
     messages = _build_messages(_request("image/png"), model_id="anthropic/claude-sonnet-4-6")
 
     content = messages[1]["content"]
     assert isinstance(content, list)
     image_block = content[1]
-    assert image_block["type"] == "image"
-    assert image_block["source"]["media_type"] == "image/png"
+    assert image_block["type"] == "image_url"
+    assert image_block["image_url"]["url"] == "data:image/png;base64,cGRmLWJ5dGVz"
 
 
 async def test_live_document_extraction_uses_larger_document_token_budget() -> None:
