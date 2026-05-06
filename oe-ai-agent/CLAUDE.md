@@ -131,6 +131,11 @@ Canonical example: `tools/active_medications.py`. Checklist:
 | `LLM_MAX_TOKENS` | Completion cap (default 4096) | no |
 | `AI_AGENT_DOCUMENT_MAX_TOKENS` | Document extraction completion cap (default 8192) | no |
 | `ANTHROPIC_API_KEY` | Required when `LLM_PROVIDER=anthropic` | conditional |
+| `COHERE_API_KEY` | Enables clinical guideline dense retrieval and rerank | no |
+| `AI_AGENT_GUIDELINE_CORPUS_DIR` | Clinical guideline corpus directory (default `corpora/clinical-guidelines`) | no |
+| `AI_AGENT_GUIDELINE_INDEX_DIR` | Directory or SQLite file for guideline RAG cache (default `.rag_cache/clinical_guidelines.sqlite`) | no |
+| `AI_AGENT_GUIDELINE_EMBED_MODEL` | Guideline embedding model (default `embed-v4.0`) | no |
+| `AI_AGENT_GUIDELINE_RERANK_MODEL` | Guideline rerank model (default `rerank-v4.0-fast`) | no |
 | `AI_AGENT_ENABLE_FREETEXT_TYPES` | Gate `recent_event` / `agenda_item` | no |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | Prod observability | no |
 

@@ -47,6 +47,7 @@ async def test_registry_exposes_new_patient_visibility_tools() -> None:
         "search_indexed_document_facts",
         "get_indexed_lab_results",
         "get_indexed_intake_answers",
+        "search_clinical_guidelines",
     }.issubset(names)
 
 

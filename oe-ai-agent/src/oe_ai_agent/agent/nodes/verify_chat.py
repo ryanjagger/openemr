@@ -39,6 +39,9 @@ _FALLBACK_NARRATIVE = (
     "verified — try a more specific question (name a lab, medication, "
     "or date) for a written summary."
 )
+_GUIDELINE_FALLBACK_NARRATIVE = (
+    "I found guideline evidence in the verified source cards below."
+)
 
 
 def make_verify_chat_node(
@@ -66,6 +69,30 @@ def make_verify_chat_node(
                 }
             )
             if narrative_failure is not None:
+                if _only_guideline_facts(verified_facts):
+                    record.attrs["narrative_failure_rule"] = narrative_failure.rule
+                    record.attrs["narrative_failure_suppressed"] = True
+                    update_langfuse_observation(
+                        output={
+                            "verified_facts": [
+                                fact.model_dump(mode="json")
+                                for fact in verified_facts
+                            ],
+                            "failures": [
+                                failure.model_dump(mode="json") for failure in failures
+                            ],
+                            "suppressed_narrative_failure": (
+                                narrative_failure.model_dump(mode="json")
+                            ),
+                            "narrative": _GUIDELINE_FALLBACK_NARRATIVE,
+                        }
+                    )
+                    return {
+                        "verified_facts": verified_facts,
+                        "verification_failures": failures,
+                        "parsed_narrative": _GUIDELINE_FALLBACK_NARRATIVE,
+                    }
+
                 failures.append(narrative_failure)
                 record.attrs["narrative_failure_rule"] = narrative_failure.rule
                 update_langfuse_observation(
@@ -100,6 +127,10 @@ def make_verify_chat_node(
             }
 
     return verify_chat_node
+
+
+def _only_guideline_facts(facts: list[ChatFact]) -> bool:
+    return bool(facts) and all(fact.type is ChatFactType.GUIDELINE for fact in facts)
 
 
 def _verify_chat_facts(

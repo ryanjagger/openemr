@@ -14,7 +14,11 @@ from typing import Protocol
 
 from oe_ai_agent.schemas.brief import BriefItem, Citation, VerificationFailure
 from oe_ai_agent.schemas.tool_results import TypedRow
-from oe_ai_agent.verifier.constraints import ALLOWED_TABLES_FOR_TYPE, MAX_AGE_DAYS_FOR_TYPE
+from oe_ai_agent.verifier.constraints import (
+    ALLOWED_TABLES_FOR_TYPE,
+    GLOBAL_EVIDENCE_RESOURCE_TYPES,
+    MAX_AGE_DAYS_FOR_TYPE,
+)
 
 
 class CitationBackedText(Protocol):
@@ -57,6 +61,8 @@ def check_patient_binding(
         row = rows_by_key.get(_citation_key(citation))
         if row is None:
             continue  # citation existence is a separate rule
+        if row.resource_type in GLOBAL_EVIDENCE_RESOURCE_TYPES:
+            continue
         if row.patient_id != expected_patient_uuid:
             return VerificationFailure(
                 rule="tier1_patient_binding",

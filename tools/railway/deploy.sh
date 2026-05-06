@@ -184,6 +184,7 @@ stage_oe_ai_agent() {
         oe-ai-agent/railway.json \
         oe-ai-agent/pyproject.toml \
         oe-ai-agent/uv.lock \
+        oe-ai-agent/corpora \
         oe-ai-agent/src \
         "$stage/"
 

@@ -197,6 +197,7 @@ def _maybe_chat_fact_for_row(rtype: str, rid: str, note: str) -> dict[str, Any] 
         "Encounter": ("encounter", "Encounter"),
         "DocumentReference": ("note", "Note"),
         "IndexedDocumentFact": ("document_fact", "Indexed document fact"),
+        "ClinicalGuidelineChunk": ("guideline", "Guideline"),
         "Appointment": ("appointment", "Appointment"),
     }
     if rtype in {"CarePlan", "Goal"}:

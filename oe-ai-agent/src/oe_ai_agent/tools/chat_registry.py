@@ -13,6 +13,7 @@ from oe_ai_agent.tools.active_problems import get_active_problems
 from oe_ai_agent.tools.allergies import get_allergies
 from oe_ai_agent.tools.appointments import get_appointments
 from oe_ai_agent.tools.care_plan_goals import get_care_plan_goals
+from oe_ai_agent.tools.clinical_guidelines import search_clinical_guidelines
 from oe_ai_agent.tools.demographics import get_demographics
 from oe_ai_agent.tools.fhir_client import FhirClient, FhirError
 from oe_ai_agent.tools.immunizations import get_immunizations
@@ -295,6 +296,23 @@ async def _handle_care_plan_goals(
     )
 
 
+async def _handle_search_clinical_guidelines(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    del client, patient_uuid
+    query = _optional_str(arguments.get("query"))
+    if query is None:
+        raise ValueError("query is required")
+    return await search_clinical_guidelines(
+        query=query,
+        category=_optional_str(arguments.get("category")),
+        topic_tag=_optional_str(arguments.get("topic_tag")),
+        limit=_optional_limit(arguments.get("limit")),
+    )
+
+
 def _reject_arguments(arguments: dict[str, object]) -> None:
     if arguments:
         raise ValueError("this tool does not accept arguments")
@@ -562,6 +580,46 @@ CHAT_TOOL_REGISTRY: dict[str, ChatToolSpec] = {
             "additionalProperties": False,
         },
         handler=_handle_indexed_intake_answers,
+    ),
+    "search_clinical_guidelines": ChatToolSpec(
+        name="search_clinical_guidelines",
+        description=(
+            "Search the local clinical guideline corpus using hybrid keyword "
+            "and vector retrieval with source snippets. Use for general "
+            "clinical guideline, screening, counseling, immunization, "
+            "preventive-care, pharmacology, or public-health guidance questions."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Guideline search query. Do not include patient names, "
+                        "MRNs, or other direct identifiers."
+                    ),
+                },
+                "category": {
+                    "type": "string",
+                    "description": (
+                        "Optional corpus category filter, such as preventive, "
+                        "cardiometabolic, cancer_screening, infectious_disease, "
+                        "mental_health_substance, immunizations, or pharmacology."
+                    ),
+                },
+                "topic_tag": {
+                    "type": "string",
+                    "description": "Optional topic tag filter such as obesity or breast cancer.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Optional result limit from 1 to 10.",
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        handler=_handle_search_clinical_guidelines,
     ),
     "get_lab_trend": ChatToolSpec(
         name="get_lab_trend",

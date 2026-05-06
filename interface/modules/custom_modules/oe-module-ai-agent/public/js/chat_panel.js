@@ -323,8 +323,7 @@
             var note = document.createElement('div');
             note.className = 'small text-muted mt-2';
             note.textContent = failures.length +
-                ' fact' + (failures.length === 1 ? '' : 's') +
-                ' dropped by verifier';
+                ' verifier issue' + (failures.length === 1 ? '' : 's');
             note.title = failures.map(function (f) {
                 return (f.rule || '?') + ': ' + (f.detail || '');
             }).join('\n');

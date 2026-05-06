@@ -43,6 +43,7 @@ class ChatFactType(StrEnum):
     NOTE = "note"
     INTAKE_ANSWER = "intake_answer"
     DOCUMENT_FACT = "document_fact"
+    GUIDELINE = "guideline"
     ORDER = "order"
     PROCEDURE = "procedure"
     IMMUNIZATION = "immunization"

@@ -12,6 +12,7 @@ import respx
 
 from oe_ai_agent.agent.chat_state import ChatState
 from oe_ai_agent.agent.graph_chat import build_chat_graph
+from oe_ai_agent.guidelines.models import GLOBAL_EVIDENCE_PATIENT_ID, GUIDELINE_RESOURCE_TYPE
 from oe_ai_agent.llm.client import LlmChatResult, LlmToolCall, LlmUsage
 from oe_ai_agent.llm.mock_client import MockLlmClient
 from oe_ai_agent.observability import use_trace
@@ -78,6 +79,25 @@ def _medication_context() -> list[TypedRow]:
                 "status": "active",
                 "medicationCodeableConcept": {"text": "Lisinopril 10 mg"},
             },
+        )
+    ]
+
+
+def _guideline_context() -> list[TypedRow]:
+    return [
+        TypedRow(
+            resource_type=GUIDELINE_RESOURCE_TYPE,
+            resource_id="cdc-opioid:1",
+            patient_id=GLOBAL_EVIDENCE_PATIENT_ID,
+            last_updated=datetime(2022, 11, 4, tzinfo=UTC),
+            fields={
+                "title": "CDC Clinical Practice Guideline for Prescribing Opioids for Pain",
+                "publication_date": "2022-11-04",
+                "source": "clinical_guideline_corpus",
+            },
+            verbatim_excerpt=(
+                "Nonopioid therapies are preferred for subacute and chronic pain."
+            ),
         )
     ]
 
@@ -225,6 +245,54 @@ async def test_unground_number_in_narrative_is_replaced_with_fallback() -> None:
     assert any(
         f.rule == "tier1_narrative_grounding" for f in final["verification_failures"]
     )
+
+
+@pytest.mark.asyncio
+async def test_guideline_only_narrative_fallback_keeps_cards_without_user_failure() -> None:
+    envelope = json.dumps(
+        {
+            "narrative": (
+                "The 2022 CDC opioid guideline includes 12 recommendations for "
+                "pain care."
+            ),
+            "facts": [
+                {
+                    "type": "guideline",
+                    "text": (
+                        "Nonopioid therapies are preferred for subacute and "
+                        "chronic pain."
+                    ),
+                    "verbatim_excerpts": [
+                        "Nonopioid therapies are preferred for subacute and chronic pain."
+                    ],
+                    "citations": [
+                        {
+                            "resource_type": GUIDELINE_RESOURCE_TYPE,
+                            "resource_id": "cdc-opioid:1",
+                        }
+                    ],
+                    "anchor": 1,
+                }
+            ],
+        }
+    )
+    llm = MockLlmClient(chat_scripted=LlmChatResult(content=envelope, tool_calls=[]))
+
+    with respx.mock(assert_all_called=False) as mock:
+        _fhir_routes(mock)
+        graph = build_chat_graph(llm)
+        final = await graph.ainvoke(  # type: ignore[attr-defined]
+            _initial_state(
+                [ChatMessage(role=ChatRole.USER, content="guidelines?")],
+                cached_context=_guideline_context(),
+            )
+        )
+
+    assert len(final["verified_facts"]) == 1
+    assert final["parsed_narrative"] == (
+        "I found guideline evidence in the verified source cards below."
+    )
+    assert final["verification_failures"] == []
 
 
 @pytest.mark.asyncio

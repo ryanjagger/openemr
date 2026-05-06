@@ -5,6 +5,7 @@ from oe_ai_agent.tools.active_problems import get_active_problems
 from oe_ai_agent.tools.allergies import get_allergies
 from oe_ai_agent.tools.appointments import get_appointments
 from oe_ai_agent.tools.care_plan_goals import get_care_plan_goals
+from oe_ai_agent.tools.clinical_guidelines import search_clinical_guidelines
 from oe_ai_agent.tools.demographics import get_demographics
 from oe_ai_agent.tools.fhir_client import FhirClient, FhirError
 from oe_ai_agent.tools.immunizations import get_immunizations
@@ -43,6 +44,7 @@ __all__ = [
     "get_recent_encounters",
     "get_recent_notes",
     "get_recent_observations",
+    "search_clinical_guidelines",
     "search_indexed_document_facts",
     "search_indexed_documents",
 ]

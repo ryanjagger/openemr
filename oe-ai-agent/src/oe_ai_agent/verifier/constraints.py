@@ -17,6 +17,8 @@ import re
 from oe_ai_agent.schemas.brief import BriefItemType
 from oe_ai_agent.schemas.chat import ChatFactType
 
+GLOBAL_EVIDENCE_RESOURCE_TYPES: frozenset[str] = frozenset({"ClinicalGuidelineChunk"})
+
 ALLOWED_TABLES_FOR_TYPE: dict[BriefItemType, frozenset[str]] = {
     BriefItemType.MED_CURRENT: frozenset({"MedicationRequest"}),
     BriefItemType.MED_CHANGE: frozenset({"MedicationRequest", "DocumentReference"}),
@@ -44,6 +46,7 @@ CHAT_ALLOWED_TABLES_FOR_TYPE: dict[ChatFactType, frozenset[str]] = {
     ChatFactType.NOTE: frozenset({"DocumentReference", "IndexedDocumentFact"}),
     ChatFactType.INTAKE_ANSWER: frozenset({"IndexedDocumentFact", "DocumentReference"}),
     ChatFactType.DOCUMENT_FACT: frozenset({"IndexedDocumentFact", "DocumentReference"}),
+    ChatFactType.GUIDELINE: frozenset({"ClinicalGuidelineChunk"}),
     ChatFactType.ORDER: frozenset({"ServiceRequest"}),
     ChatFactType.PROCEDURE: frozenset({"Procedure"}),
     ChatFactType.IMMUNIZATION: frozenset({"Immunization"}),
@@ -77,6 +80,7 @@ CHAT_MAX_AGE_DAYS_FOR_TYPE: dict[ChatFactType, int | None] = {
     ChatFactType.NOTE: None,
     ChatFactType.INTAKE_ANSWER: None,
     ChatFactType.DOCUMENT_FACT: None,
+    ChatFactType.GUIDELINE: None,
     ChatFactType.ORDER: None,
     ChatFactType.PROCEDURE: None,
     ChatFactType.IMMUNIZATION: None,

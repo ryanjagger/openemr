@@ -192,12 +192,16 @@ services:
       dockerfile: Dockerfile
     ports:
     - "${WT_AI_AGENT_PORT:-8400}:8000"
+    volumes:
+    - ../../oe-ai-agent/corpora:/app/corpora:ro
+    - ../../oe-ai-agent/.rag_cache:/app/.rag_cache
     environment:
       INTERNAL_AUTH_SECRET: ${INTERNAL_AUTH_SECRET:-dev-internal-auth-secret}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       LLM_MODEL: ${LLM_MODEL:-anthropic/claude-sonnet-4-6}
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-4096}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      COHERE_API_KEY: ${COHERE_API_KEY:-}
       AI_AGENT_ENABLE_FREETEXT_TYPES: ${AI_AGENT_ENABLE_FREETEXT_TYPES:-false}
       LANGFUSE_TRACING_ENABLED: ${LANGFUSE_TRACING_ENABLED:-true}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
