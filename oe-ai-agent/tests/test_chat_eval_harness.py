@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -116,3 +118,77 @@ def test_chat_expectation_checker_flags_wrong_tool() -> None:
         "max_verified_facts": True,
         "expected_tools_called": False,
     }
+
+
+@pytest.mark.asyncio
+async def test_all_chat_fixtures_pass_deterministic_mock_gate() -> None:
+    fixtures = run_chat_eval.load_fixtures(run_chat_eval.DEFAULT_CHAT_FIXTURES_DIR)
+    llm = run_chat_eval._build_llm("mock", "mock")
+    failures: list[dict[str, Any]] = []
+
+    for fixture in fixtures:
+        rows = await run_chat_eval._run_fixture(fixture, llm, "unit")
+        for row in rows:
+            if row["known_limitation"] or not run_chat_eval._row_failed(row):
+                continue
+            failures.append(
+                {
+                    "fixture_id": row["fixture_id"],
+                    "turn_index": row["turn_index"],
+                    "error": row["error"],
+                    "parse_error": row["parse_error"],
+                    "expectations_met": row["expectations_met"],
+                    "tool_calls": row["tool_calls"],
+                    "narrative": row["narrative"],
+                }
+            )
+
+    assert failures == []
+
+
+def test_fail_on_expectations_returns_nonzero(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    async def fake_run_fixture(
+        fixture: dict[str, Any],
+        llm: run_chat_eval.LlmClient,
+        label: str,
+    ) -> list[dict[str, Any]]:
+        del fixture, llm, label
+        return [
+            {
+                "fixture_id": "chat_test_failed_expectation",
+                "turn_index": 1,
+                "known_limitation": False,
+                "error": None,
+                "parse_error": None,
+                "expectations_met": {"expected_tools_called": False},
+                "facts_verified": 0,
+                "tool_call_count": 0,
+                "duration_ms": 1,
+            }
+        ]
+
+    monkeypatch.setattr(
+        run_chat_eval,
+        "load_fixtures",
+        lambda fixtures_dir, only=None: [{"__id__": "chat_test_failed_expectation"}],
+    )
+    monkeypatch.setattr(run_chat_eval, "_run_fixture", fake_run_fixture)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_chat_eval.py",
+            "--label",
+            "unit",
+            "--provider",
+            "mock",
+            "--output",
+            str(tmp_path / "chat-eval.jsonl"),
+            "--fail-on-expectations",
+        ],
+    )
+
+    assert run_chat_eval.main() == 1

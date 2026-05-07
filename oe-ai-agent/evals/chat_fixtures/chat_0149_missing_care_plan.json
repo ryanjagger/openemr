@@ -1,0 +1,28 @@
+{
+  "label": "missing care plan data",
+  "turns": [
+    {
+      "label": "missing care plan data",
+      "user": "What care plan goals are listed?",
+      "expectations": {
+        "max_verified_facts": 0,
+        "expected_tools_called": [
+          "get_care_plan_goals"
+        ],
+        "narrative_must_contain": [
+          "available chart results do not contain that information"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "CarePlan": {
+      "resourceType": "Bundle",
+      "entry": []
+    },
+    "Goal": {
+      "resourceType": "Bundle",
+      "entry": []
+    }
+  }
+}

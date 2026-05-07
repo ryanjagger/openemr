@@ -1,0 +1,53 @@
+{
+  "label": "note citation can support medication change",
+  "turns": [
+    {
+      "label": "note citation can support medication change",
+      "user": "Which recent note mentions amlodipine was changed?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "medication_change"
+        ],
+        "expected_citations": [
+          "note-med-change"
+        ],
+        "expected_tools_called": [
+          "get_recent_notes"
+        ],
+        "facts_must_contain": [
+          "Amlodipine changed"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "DocumentReference": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "DocumentReference",
+            "id": "note-med-change",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "current",
+            "description": "Amlodipine changed to nightly dosing",
+            "date": "{{TODAY-21D}}",
+            "content": [
+              {
+                "attachment": {
+                  "title": "Amlodipine changed to nightly dosing"
+                }
+              }
+            ],
+            "meta": {
+              "lastUpdated": "{{TODAY-21D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,8 +1,10 @@
 # Agent evals
 
-Live-LLM eval harnesses for the brief and chat agents. Not CI tests — they
-call the real model, cost API credits, and are non-deterministic. Run before
-merging prompt or model changes.
+Live-LLM eval harnesses for the brief and chat agents. Live runs call the
+real model, cost API credits, and are non-deterministic, so keep those manual
+unless a workflow is explicitly configured with model credentials. The chat
+fixtures also run under the deterministic mock provider in CI to catch harness,
+tool-routing, citation, and missing-data regressions.
 
 The fixtures form a **golden set** in the sense of *Production Evals
 Cookbook, Stage 1*: hand-curated input/output pairs that define what
@@ -11,29 +13,29 @@ regression or a fixture that needs updating — not both at once.
 
 ## Brief evals
 
-The patient-brief runner uses `evals/fixtures/*.json`; each fixture is a
+The patient-brief runner uses `evals/brief_fixtures/*.json`; each fixture is a
 FHIR snapshot plus loose expectations over verified brief items.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 
 # default: claude-sonnet-4-6, all fixtures, freetext types disabled (T3.10)
-uv run python evals/run_eval.py --label baseline
+uv run python evals/run_brief_eval.py --label baseline
 
 # A/B: tweak prompt, re-run with a new label
-uv run python evals/run_eval.py --label v2_prompt
+uv run python evals/run_brief_eval.py --label v2_prompt
 
 # debug the harness without spending credits (uses MockLlmClient.synthesizing)
-uv run python evals/run_eval.py --label harness-check --provider mock
+uv run python evals/run_brief_eval.py --label harness-check --provider mock
 
 # run a subset
-uv run python evals/run_eval.py --label only-stale --only 0003
+uv run python evals/run_brief_eval.py --label only-stale --only 0003
 
 # run only the empty-chart and code-status golden cases
-uv run python evals/run_eval.py --label spot-check --only 0006 --only 0008
+uv run python evals/run_brief_eval.py --label spot-check --only 0006 --only 0008
 
 # enable the freetext types (recent_event / agenda_item)
-uv run python evals/run_eval.py --label freetext-on --enable-freetext-types
+uv run python evals/run_brief_eval.py --label freetext-on --enable-freetext-types
 ```
 
 Brief outputs land in `evals/runs/{ts}_{label}.jsonl` (gitignored). One JSON
@@ -64,7 +66,7 @@ jq -r '.fixture_id as $id
 
 ### Authoring brief fixtures
 
-Files in `evals/fixtures/*.json` — each one a FHIR snapshot keyed by
+Files in `evals/brief_fixtures/*.json` — each one a FHIR snapshot keyed by
 resource type. The runner mounts respx routes per resource type; query
 params are not enforced, so a single Bundle covers any search the tools
 issue against that resource.
@@ -121,6 +123,9 @@ uv run python evals/run_chat_eval.py --label baseline
 # debug the harness without spending credits
 uv run python evals/run_chat_eval.py --label harness-check --provider mock
 
+# deterministic gate: nonzero exit on runner errors or failed expectations
+uv run python evals/run_chat_eval.py --label harness-check --provider mock --fail-on-expectations
+
 # run a subset
 uv run python evals/run_chat_eval.py --label only-labs --only chat_0002
 ```
@@ -172,6 +177,13 @@ Files in `evals/chat_fixtures/*.json` use this shape:
 }
 ```
 
+Fixtures may also include an optional `api` object for OpenEMR non-FHIR
+document endpoints. Keys are `METHOD /path` relative to the OpenEMR API base
+(for example, `GET /ai/documents/recent/eval-patient-fixture`); values are
+JSON response bodies. The runner installs default empty responses for recent
+unindexed documents, indexed document manifests, and indexed document facts
+when a fixture omits them.
+
 Supported chat expectation keys:
 
 | Key | Meaning |
@@ -212,7 +224,8 @@ or cached context. Keep deterministic verifier-only behavior in `tests/`.
 
 ## What this is **not**
 
-- Not a CI test — see `tests/` for those.
+- Live-model evals are not regular CI tests; the deterministic mock-provider
+  chat gate is covered by `tests/`.
 - Not a substitute for human review of fixture additions; the eval shows
   *what changed*, not *whether the change is good*.
 - Not a paraphrase-fidelity check (Tier 3 — deferred per ARCH §6.3).

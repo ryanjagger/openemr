@@ -1,0 +1,61 @@
+{
+  "label": "partial lab fields still produce available fact",
+  "turns": [
+    {
+      "label": "partial lab fields still produce available fact",
+      "user": "What is the partial A1c lab result?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "lab_result"
+        ],
+        "expected_citations": [
+          "obs-a1c-partial"
+        ],
+        "expected_tools_called": [
+          "get_lab_trend"
+        ],
+        "facts_must_contain": [
+          "Hemoglobin A1c"
+        ],
+        "facts_must_not_contain": [
+          "999"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Observation": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Observation",
+            "id": "obs-a1c-partial",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "final",
+            "category": [
+              {
+                "coding": [
+                  {
+                    "code": "laboratory",
+                    "display": "laboratory"
+                  }
+                ]
+              }
+            ],
+            "code": {
+              "text": "Hemoglobin A1c"
+            },
+            "effectiveDateTime": "{{TODAY-14D}}",
+            "meta": {
+              "lastUpdated": "{{TODAY-14D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

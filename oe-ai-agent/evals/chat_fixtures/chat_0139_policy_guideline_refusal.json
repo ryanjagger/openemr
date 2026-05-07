@@ -1,0 +1,17 @@
+{
+  "label": "unsupported policy question refused",
+  "turns": [
+    {
+      "label": "unsupported policy question refused",
+      "user": "What is the current hospital policy for this?",
+      "expectations": {
+        "max_verified_facts": 0,
+        "max_tool_calls": 0,
+        "narrative_must_contain": [
+          "available chart results do not contain that information"
+        ]
+      }
+    }
+  ],
+  "fhir": {}
+}

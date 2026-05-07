@@ -1,0 +1,24 @@
+{
+  "label": "missing immunization data",
+  "turns": [
+    {
+      "label": "missing immunization data",
+      "user": "What immunizations are recorded?",
+      "expectations": {
+        "max_verified_facts": 0,
+        "expected_tools_called": [
+          "get_immunizations"
+        ],
+        "narrative_must_contain": [
+          "available chart results do not contain that information"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Immunization": {
+      "resourceType": "Bundle",
+      "entry": []
+    }
+  }
+}

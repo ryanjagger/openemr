@@ -1,0 +1,96 @@
+{
+  "label": "latest lab chosen over older lab",
+  "turns": [
+    {
+      "label": "latest lab chosen over older lab",
+      "user": "What is the latest A1c lab result?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_citations": [
+          "obs-a1c-latest"
+        ],
+        "forbidden_citations": [
+          "obs-a1c-older"
+        ],
+        "expected_tools_called": [
+          "get_lab_trend"
+        ],
+        "facts_must_contain": [
+          "6.8"
+        ],
+        "facts_must_not_contain": [
+          "9.2"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Observation": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Observation",
+            "id": "obs-a1c-older",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "final",
+            "category": [
+              {
+                "coding": [
+                  {
+                    "code": "laboratory",
+                    "display": "laboratory"
+                  }
+                ]
+              }
+            ],
+            "code": {
+              "text": "Hemoglobin A1c"
+            },
+            "effectiveDateTime": "{{TODAY-120D}}",
+            "meta": {
+              "lastUpdated": "{{TODAY-120D}}T00:00:00+00:00"
+            },
+            "valueQuantity": {
+              "value": 9.2,
+              "unit": "%"
+            }
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "Observation",
+            "id": "obs-a1c-latest",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "final",
+            "category": [
+              {
+                "coding": [
+                  {
+                    "code": "laboratory",
+                    "display": "laboratory"
+                  }
+                ]
+              }
+            ],
+            "code": {
+              "text": "Hemoglobin A1c"
+            },
+            "effectiveDateTime": "{{TODAY-14D}}",
+            "meta": {
+              "lastUpdated": "{{TODAY-14D}}T00:00:00+00:00"
+            },
+            "valueQuantity": {
+              "value": 6.8,
+              "unit": "%"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

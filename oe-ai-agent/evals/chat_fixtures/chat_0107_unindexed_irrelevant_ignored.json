@@ -1,0 +1,71 @@
+{
+  "label": "irrelevant unindexed document is not extracted",
+  "turns": [
+    {
+      "label": "irrelevant unindexed document is not extracted",
+      "user": "What medications is she taking?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "medication"
+        ],
+        "expected_citations": [
+          "med-metformin-current"
+        ],
+        "expected_tools_called": [
+          "get_active_medications"
+        ],
+        "forbidden_tools_called": [
+          "extract_documents"
+        ],
+        "facts_must_contain": [
+          "Metformin"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "MedicationRequest": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-metformin-current",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "active",
+            "intent": "order",
+            "medicationCodeableConcept": {
+              "text": "Metformin 500 mg oral tablet"
+            },
+            "authoredOn": "{{TODAY-30D}}",
+            "dosageInstruction": [
+              {
+                "text": "Metformin 500 mg oral tablet"
+              }
+            ],
+            "meta": {
+              "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "api": {
+    "GET /ai/documents/recent/eval-patient-fixture": {
+      "documents": [
+        {
+          "id": 103,
+          "uuid": "doc-admin",
+          "filename": "insurance-card.pdf",
+          "mimetype": "application/pdf",
+          "docdate": "{{TODAY-7D}}",
+          "category_name": "Insurance"
+        }
+      ]
+    }
+  }
+}

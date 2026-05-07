@@ -21,6 +21,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 from collections import Counter
@@ -63,6 +64,7 @@ from oe_ai_agent.schemas.chat import ChatFact, ChatMessage, ChatRole
 from oe_ai_agent.schemas.tool_results import ToolError, TypedRow
 
 DEFAULT_CHAT_FIXTURES_DIR = Path(__file__).parent / "chat_fixtures"
+EVAL_API_BASE = EVAL_FHIR_BASE[: -len("/fhir")] + "/api"
 
 _EMPTY_BUNDLE_RESOURCE_TYPES = (
     "AllergyIntolerance",
@@ -81,27 +83,104 @@ _EMPTY_BUNDLE_RESOURCE_TYPES = (
 )
 
 _TOOL_RULES: tuple[tuple[tuple[str, ...], str, dict[str, Any]], ...] = (
-    (("a1c", "lab"), "get_lab_trend", {"code_or_text": "hemoglobin a1c"}),
-    (("immunization", "vaccine", "vaccination"), "get_immunizations", {}),
+    (
+        ("indexed lab", "uploaded lab", "external lab", "scanned lab", "pdf lab"),
+        "get_indexed_lab_results",
+        {},
+    ),
+    (
+        ("intake", "questionnaire", "patient reported", "uploaded form"),
+        "get_indexed_intake_answers",
+        {},
+    ),
+    (
+        ("document manifest", "which uploaded document", "uploaded documents"),
+        "search_indexed_documents",
+        {},
+    ),
+    (
+        ("document fact", "source evidence", "evidence source"),
+        "search_indexed_document_facts",
+        {},
+    ),
+    (
+        ("stopped", "discontinued", "medication history", "past medication"),
+        "get_medication_history",
+        {},
+    ),
+    (("medication", "medications", "medicine", "lisinopril", "stop"), "get_active_medications", {}),
     (("allerg",), "get_allergies", {}),
-    (("med", "lisinopril", "stop"), "get_active_medications", {}),
-    (("problem", "diagnos"), "get_active_problems", {}),
-    (("appointment",), "get_appointments", {}),
-    (("goal", "care plan"), "get_care_plan_goals", {}),
+    (("problem", "diagnose", "diagnosis", "diagnoses", "condition"), "get_active_problems", {}),
+    (
+        ("a1c", "hemoglobin", "creatinine", "ldl", "lab trend"),
+        "get_lab_trend",
+        {"code_or_text": "hemoglobin a1c"},
+    ),
+    (
+        ("blood pressure", "heart rate", "vital", "weight", "bmi", "observation"),
+        "get_observations",
+        {},
+    ),
+    (("immunization", "vaccine", "vaccination", "flu shot"), "get_immunizations", {}),
+    (("appointment", "upcoming"), "get_appointments", {}),
+    (("goal", "care plan", "careplan"), "get_care_plan_goals", {}),
     (("visit", "encounter"), "get_recent_encounters", {}),
-    (("note",), "get_recent_notes", {}),
+    (("note", "notes", "documentreference"), "get_recent_notes", {}),
+    (("order", "orders", "servicerequest"), "get_orders", {}),
+    (("procedure", "surgery"), "get_procedures", {}),
+    (("demographic", "birth", "dob", "gender", "name"), "get_demographics", {}),
 )
 
 _RESOURCE_TYPE_RULES: tuple[tuple[tuple[str, ...], frozenset[str]], ...] = (
-    (("a1c", "lab"), frozenset({"Observation", "DiagnosticReport"})),
-    (("immunization", "vaccine", "vaccination"), frozenset({"Immunization"})),
+    (
+        ("indexed lab", "uploaded lab", "external lab", "scanned lab", "pdf lab"),
+        frozenset({"IndexedDocumentFact"}),
+    ),
+    (
+        ("intake", "questionnaire", "patient reported", "uploaded form"),
+        frozenset({"IndexedDocumentFact"}),
+    ),
+    (
+        ("document manifest", "which uploaded document", "uploaded documents"),
+        frozenset({"DocumentReference"}),
+    ),
+    (
+        ("document fact", "source evidence", "evidence source"),
+        frozenset({"IndexedDocumentFact", "DocumentReference"}),
+    ),
+    (
+        ("stopped", "discontinued", "medication history", "past medication"),
+        frozenset({"MedicationRequest", "DocumentReference"}),
+    ),
+    (
+        ("medication", "medications", "medicine", "lisinopril", "stop"),
+        frozenset({"MedicationRequest"}),
+    ),
     (("allerg",), frozenset({"AllergyIntolerance"})),
-    (("med", "lisinopril", "stop"), frozenset({"MedicationRequest"})),
-    (("problem", "diagnos"), frozenset({"Condition"})),
-    (("appointment",), frozenset({"Appointment"})),
-    (("goal", "care plan"), frozenset({"CarePlan", "Goal"})),
+    (("problem", "diagnose", "diagnosis", "diagnoses", "condition"), frozenset({"Condition"})),
+    (
+        ("a1c", "hemoglobin", "creatinine", "ldl", "lab trend"),
+        frozenset({"Observation", "DiagnosticReport", "IndexedDocumentFact"}),
+    ),
+    (
+        ("blood pressure", "heart rate", "vital", "weight", "bmi", "observation"),
+        frozenset({"Observation"}),
+    ),
+    (("immunization", "vaccine", "vaccination", "flu shot"), frozenset({"Immunization"})),
+    (("appointment", "upcoming"), frozenset({"Appointment"})),
+    (("goal", "care plan", "careplan"), frozenset({"CarePlan", "Goal"})),
     (("visit", "encounter"), frozenset({"Encounter"})),
-    (("note",), frozenset({"DocumentReference"})),
+    (
+        ("note", "notes", "documentreference"),
+        frozenset({"DocumentReference", "IndexedDocumentFact"}),
+    ),
+    (("order", "orders", "servicerequest"), frozenset({"ServiceRequest"})),
+    (("procedure", "surgery"), frozenset({"Procedure"})),
+    (("demographic", "birth", "dob", "gender", "name"), frozenset({"Patient"})),
+)
+
+_DOCUMENT_RE = re.compile(
+    r"id=(?P<id>\d+)\s+uuid=(?P<uuid>\S+)\s+type_hint=(?P<type>\S+)\s+filename=(?P<filename>\S+)"
 )
 
 
@@ -122,6 +201,14 @@ def main() -> int:
         action="append",
         help="Run only fixtures whose stem matches one of these (repeatable)",
     )
+    parser.add_argument(
+        "--fail-on-expectations",
+        action="store_true",
+        help=(
+            "Exit nonzero when any non-known-limitation turn has a runner error, "
+            "parse error, or failed boolean expectation."
+        ),
+    )
     args = parser.parse_args()
 
     fixtures = load_fixtures(args.fixtures, only=args.only)
@@ -134,8 +221,7 @@ def main() -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(
-        f"running {len(fixtures)} chat fixture(s) | model={llm.model_id} | "
-        f"label={args.label}",
+        f"running {len(fixtures)} chat fixture(s) | model={llm.model_id} | label={args.label}",
         file=sys.stderr,
     )
     print(f"writing → {output_path}", file=sys.stderr)
@@ -150,7 +236,7 @@ def main() -> int:
                 out.flush()
                 summary["turns"] += 1
                 summary["facts_verified"] += row["facts_verified"]
-                failed = not all(row["expectations_met"].values())
+                failed = _row_failed(row)
                 if failed and row["known_limitation"]:
                     summary["known_limitation_failures"] += 1
                 elif failed:
@@ -172,6 +258,8 @@ def main() -> int:
         f"({summary['known_limitation_failures']} known limitations)",
         file=sys.stderr,
     )
+    if args.fail_on_expectations and summary["turns_with_failed_expectations"]:
+        return 1
     return 0
 
 
@@ -201,8 +289,11 @@ async def _run_fixture(
 
     with respx.mock(assert_all_called=False, assert_all_mocked=False) as router:
         fhir = fixture.get("fhir", {})
+        api = fixture.get("api", {})
         install_fhir_routes(router, fhir)
         _install_empty_chat_routes(router, fhir)
+        _install_api_routes(router, api)
+        _install_empty_api_routes(router, api)
 
         for index, turn in enumerate(fixture.get("turns", []), start=1):
             row, state = await _run_turn(
@@ -364,6 +455,82 @@ def _install_empty_chat_routes(
         )
 
 
+def _install_api_routes(
+    router: respx.MockRouter,
+    api: object,
+) -> None:
+    if not isinstance(api, dict):
+        return
+    for raw_key, raw_body in api.items():
+        if not isinstance(raw_key, str):
+            continue
+        method, path = _parse_api_route_key(raw_key)
+        route = getattr(router, method.lower(), None)
+        if route is None:
+            continue
+        status_code = 200
+        body = raw_body
+        if isinstance(raw_body, dict) and "json" in raw_body:
+            body = raw_body["json"]
+            raw_status = raw_body.get("status_code")
+            if isinstance(raw_status, int):
+                status_code = raw_status
+        route(_api_url(path)).mock(return_value=httpx.Response(status_code, json=body))
+
+
+def _install_empty_api_routes(
+    router: respx.MockRouter,
+    api: object,
+) -> None:
+    configured = _configured_api_keys(api)
+    defaults: dict[str, dict[str, Any]] = {
+        f"GET /ai/documents/recent/{EVAL_PATIENT_UUID}": {"documents": []},
+        f"GET /ai/documents/indexed/{EVAL_PATIENT_UUID}/document": {"documents": []},
+        f"GET /ai/documents/indexed-facts/{EVAL_PATIENT_UUID}/document": {"facts": []},
+    }
+    for key, body in defaults.items():
+        method, path = _parse_api_route_key(key)
+        if (method, _normalize_api_path(path)) in configured:
+            continue
+        getattr(router, method.lower())(_api_url(path)).mock(
+            return_value=httpx.Response(200, json=body)
+        )
+
+
+def _configured_api_keys(api: object) -> set[tuple[str, str]]:
+    if not isinstance(api, dict):
+        return set()
+    keys: set[tuple[str, str]] = set()
+    for raw_key in api:
+        if not isinstance(raw_key, str):
+            continue
+        method, path = _parse_api_route_key(raw_key)
+        keys.add((method, _normalize_api_path(path)))
+    return keys
+
+
+def _parse_api_route_key(value: str) -> tuple[str, str]:
+    stripped = value.strip()
+    if " " in stripped:
+        raw_method, raw_path = stripped.split(maxsplit=1)
+        method = raw_method.upper()
+        path = raw_path
+    else:
+        method = "GET"
+        path = stripped
+    if method not in {"GET", "POST"}:
+        method = "GET"
+    return method, path
+
+
+def _api_url(path: str) -> str:
+    return f"{EVAL_API_BASE}/{_normalize_api_path(path)}"
+
+
+def _normalize_api_path(path: str) -> str:
+    return path.strip().lstrip("/")
+
+
 def _tool_calls_from_trace(trace_steps: list[dict[str, Any]]) -> list[str]:
     calls: list[str] = []
     for record in trace_steps:
@@ -391,8 +558,7 @@ def _fact_to_dict(fact: ChatFact) -> dict[str, Any]:
         "text": fact.text,
         "verbatim_excerpts": list(fact.verbatim_excerpts),
         "citations": [
-            {"resource_type": c.resource_type, "resource_id": c.resource_id}
-            for c in fact.citations
+            {"resource_type": c.resource_type, "resource_id": c.resource_id} for c in fact.citations
         ],
         "anchor": fact.anchor,
     }
@@ -434,9 +600,7 @@ def _check_chat_expectations(  # noqa: PLR0912 - flat fixture expectation keys.
         needles = [str(value).lower() for value in expectations["narrative_must_contain"]]
         result["narrative_must_contain"] = all(needle in narrative_blob for needle in needles)
     if "narrative_must_not_contain" in expectations:
-        forbidden = [
-            str(value).lower() for value in expectations["narrative_must_not_contain"]
-        ]
+        forbidden = [str(value).lower() for value in expectations["narrative_must_not_contain"]]
         result["narrative_must_not_contain"] = all(
             needle not in narrative_blob for needle in forbidden
         )
@@ -445,14 +609,11 @@ def _check_chat_expectations(  # noqa: PLR0912 - flat fixture expectation keys.
         result["facts_must_contain"] = all(needle in fact_text_blob for needle in needles)
     if "facts_must_not_contain" in expectations:
         forbidden = [str(value).lower() for value in expectations["facts_must_not_contain"]]
-        result["facts_must_not_contain"] = all(
-            needle not in fact_text_blob for needle in forbidden
-        )
+        result["facts_must_not_contain"] = all(needle not in fact_text_blob for needle in forbidden)
     if "expected_drop_rules" in expectations:
         wanted_drops: dict[str, int] = expectations["expected_drop_rules"]
         result["expected_drop_rules"] = all(
-            drop_counter.get(rule, 0) >= int(count)
-            for rule, count in wanted_drops.items()
+            drop_counter.get(rule, 0) >= int(count) for rule, count in wanted_drops.items()
         )
     if "expected_tools_called" in expectations:
         wanted_tools = set(expectations["expected_tools_called"])
@@ -472,36 +633,42 @@ def _check_chat_expectations(  # noqa: PLR0912 - flat fixture expectation keys.
     return result
 
 
-def _mock_chat_script(messages: list[dict[str, Any]]) -> LlmChatResult:
+def _mock_chat_script(messages: list[dict[str, Any]]) -> LlmChatResult:  # noqa: PLR0911
+    role = _mock_role(messages)
+    question = _question_from_messages(messages)
+
+    if role == "supervisor":
+        return LlmChatResult(
+            content=json.dumps(_mock_supervisor_route(messages, question)),
+            tool_calls=[],
+        )
+    if role == "extractor":
+        return _mock_extractor_result(messages, question)
+    if role == "finalize":
+        rows = _select_rows_for_question(_rows_from_messages(messages), question)
+        return LlmChatResult(
+            content=json.dumps(_mock_envelope_for_rows(rows, question)),
+            tool_calls=[],
+        )
+
     rows = _rows_from_messages(messages)
-    question = _last_user_question(messages)
     if rows:
         selected = _select_rows_for_question(rows, question)
         if selected:
             return LlmChatResult(
-                content=json.dumps(_mock_envelope_for_rows(selected)),
+                content=json.dumps(_mock_envelope_for_rows(selected, question)),
                 tool_calls=[],
             )
     if _has_tool_result(messages):
         return LlmChatResult(
-            content=json.dumps(
-                {
-                    "narrative": "The available chart results do not contain that information.",
-                    "facts": [],
-                }
-            ),
+            content=json.dumps(_mock_empty_envelope(question)),
             tool_calls=[],
         )
 
     tool_name, arguments = _tool_for_question(question)
     if tool_name is None:
         return LlmChatResult(
-            content=json.dumps(
-                {
-                    "narrative": "I do not see enough chart context to answer that.",
-                    "facts": [],
-                }
-            ),
+            content=json.dumps(_mock_empty_envelope(question)),
             tool_calls=[],
         )
     return LlmChatResult(
@@ -513,6 +680,116 @@ def _mock_chat_script(messages: list[dict[str, Any]]) -> LlmChatResult:
                 arguments=arguments,
             )
         ],
+    )
+
+
+def _mock_role(messages: list[dict[str, Any]]) -> str:
+    first_content = ""
+    for message in messages:
+        if message.get("role") != "system":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            first_content = content
+            break
+    if "You are the SUPERVISOR" in first_content:
+        return "supervisor"
+    if "You are the EXTRACTOR worker" in first_content:
+        return "extractor"
+    if "EVIDENCE_RETRIEVER worker" in first_content:
+        return "evidence"
+    if "OpenEMR chart-context chat assistant" in first_content:
+        return "finalize"
+    return "evidence"
+
+
+def _mock_supervisor_route(messages: list[dict[str, Any]], question: str) -> dict[str, str]:
+    prompt = _joined_message_content(messages)
+    extractor_runs = _worker_run_count(prompt, "extractor_runs")
+    evidence_runs = _worker_run_count(prompt, "evidence_runs")
+    has_context = "CACHED CONTEXT SUMMARY:\n  (empty)" not in prompt
+
+    if (
+        extractor_runs == 0
+        and _has_unindexed_documents(prompt)
+        and _question_needs_extraction(question)
+    ):
+        return {"next": "extractor", "reason": "relevant unindexed document exists"}
+    if not has_context and evidence_runs == 0 and _tool_for_question(question)[0] is not None:
+        return {"next": "evidence_retriever", "reason": "chart evidence is needed"}
+    return {"next": "finalize", "reason": "context is sufficient or unavailable"}
+
+
+def _mock_extractor_result(
+    messages: list[dict[str, Any]],
+    question: str,
+) -> LlmChatResult:
+    if _has_tool_result(messages):
+        return LlmChatResult(content="Extraction complete.", tool_calls=[])
+
+    documents = _documents_from_prompt(_joined_message_content(messages))
+    target_type = _target_document_type(question)
+    if target_type is None:
+        return LlmChatResult(content="No relevant document was selected.", tool_calls=[])
+
+    selections = [
+        {"document_id": document_id, "document_type": document_type}
+        for document_id, document_type, filename in documents
+        if document_type == target_type or target_type in filename.lower()
+    ]
+    if not selections:
+        return LlmChatResult(content="No relevant document was selected.", tool_calls=[])
+    return LlmChatResult(
+        content=None,
+        tool_calls=[
+            LlmToolCall(
+                tool_call_id="mock-extract-1",
+                name="extract_documents",
+                arguments={"documents": selections[:2]},
+            )
+        ],
+    )
+
+
+def _worker_run_count(prompt: str, key: str) -> int:
+    match = re.search(rf"\b{re.escape(key)}=(\d+)", prompt)
+    return int(match.group(1)) if match is not None else 0
+
+
+def _has_unindexed_documents(prompt: str) -> bool:
+    return bool(_DOCUMENT_RE.search(prompt))
+
+
+def _question_needs_extraction(question: str) -> bool:
+    lowered = question.lower()
+    return _target_document_type(question) is not None and _contains_any(
+        lowered,
+        ("unindexed", "new upload", "recent upload", "uploaded"),
+    )
+
+
+def _target_document_type(question: str) -> str | None:
+    lowered = question.lower()
+    if _contains_any(lowered, ("intake", "questionnaire", "form")):
+        return "intake_form"
+    if _contains_any(lowered, ("lab", "a1c", "ldl", "creatinine", "result")):
+        return "lab_report"
+    return None
+
+
+def _documents_from_prompt(prompt: str) -> list[tuple[int, str, str]]:
+    documents: list[tuple[int, str, str]] = []
+    for match in _DOCUMENT_RE.finditer(prompt):
+        type_hint = match.group("type")
+        if type_hint not in {"lab_report", "intake_form"}:
+            continue
+        documents.append((int(match.group("id")), type_hint, match.group("filename")))
+    return documents
+
+
+def _joined_message_content(messages: list[dict[str, Any]]) -> str:
+    return "\n".join(
+        content for message in messages if isinstance((content := message.get("content")), str)
     )
 
 
@@ -590,6 +867,33 @@ def _last_user_question(messages: list[dict[str, Any]]) -> str:
     return ""
 
 
+def _question_from_messages(messages: list[dict[str, Any]]) -> str:
+    direct = _last_user_question(messages)
+    if direct:
+        return direct
+    prompt = _joined_message_content(messages)
+    for marker in ("LAST USER MESSAGE:", "USER QUESTION:"):
+        extracted = _extract_prompt_block(prompt, marker)
+        if extracted:
+            return extracted
+    return ""
+
+
+def _extract_prompt_block(prompt: str, marker: str) -> str:
+    start = prompt.find(marker)
+    if start < 0:
+        return ""
+    rest = prompt[start + len(marker) :]
+    lines: list[str] = []
+    for line in rest.splitlines():
+        if lines and line.startswith(("UNINDEXED DOCUMENTS", "CACHED CONTEXT", "CURRENT CONTEXT")):
+            break
+        if not lines and not line.strip():
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
 def _tool_for_question(question: str) -> tuple[str | None, dict[str, Any]]:
     lowered = question.lower()
     for keywords, tool_name, arguments in _TOOL_RULES:
@@ -603,9 +907,16 @@ def _select_rows_for_question(
     question: str,
 ) -> list[dict[str, Any]]:
     wanted_types = _resource_types_for_question(question)
-    if not wanted_types:
-        return rows
-    return [row for row in rows if row["resource_type"] in wanted_types]
+    selected = (
+        rows if not wanted_types else [row for row in rows if row["resource_type"] in wanted_types]
+    )
+    if "latest" in question.lower() and selected:
+        return [_latest_row(selected)]
+    return selected
+
+
+def _latest_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return max(rows, key=lambda row: str(row.get("last_updated") or ""))
 
 
 def _resource_types_for_question(question: str) -> frozenset[str]:
@@ -620,18 +931,36 @@ def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
     return any(needle in text for needle in needles)
 
 
-def _mock_envelope_for_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _row_failed(row: dict[str, Any]) -> bool:
+    return bool(row["error"] or row["parse_error"]) or not all(row["expectations_met"].values())
+
+
+def _mock_empty_envelope(question: str) -> dict[str, Any]:
+    if _is_refusal_question(question):
+        narrative = (
+            "I can't determine that from the available chart context; "
+            "changes, diagnoses, and urgent decisions require clinician judgment."
+        )
+    else:
+        narrative = "The available chart results do not contain that information."
+    return {"narrative": narrative, "facts": []}
+
+
+def _mock_envelope_for_rows(rows: list[dict[str, Any]], question: str) -> dict[str, Any]:
     facts = [
         fact
         for index, row in enumerate(rows, start=1)
-        if (fact := _mock_fact_for_row(row, index)) is not None
+        if (fact := _mock_fact_for_row(row, index, question)) is not None
     ]
     if not facts:
-        return {
-            "narrative": "The available chart results do not contain that information.",
-            "facts": [],
-        }
+        return _mock_empty_envelope(question)
     first_text = facts[0]["text"]
+    if _is_refusal_question(question):
+        narrative = (
+            "I can summarize the charted information, but changes or diagnoses "
+            f"require clinician judgment. The chart shows {first_text} [^1]."
+        )
+        return {"narrative": narrative, "facts": facts}
     if len(facts) == 1:
         narrative = f"The chart shows {first_text} [^1]."
     else:
@@ -639,7 +968,30 @@ def _mock_envelope_for_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {"narrative": narrative, "facts": facts}
 
 
-def _mock_fact_for_row(row: dict[str, Any], anchor: int) -> dict[str, Any] | None:
+def _is_refusal_question(question: str) -> bool:
+    lowered = question.lower()
+    return _contains_any(
+        lowered,
+        (
+            "should i",
+            "should she",
+            "stop",
+            "start",
+            "diagnose",
+            "diagnosis",
+            "emergency",
+            "urgent",
+            "legal",
+            "outside the chart",
+        ),
+    )
+
+
+def _mock_fact_for_row(
+    row: dict[str, Any],
+    anchor: int,
+    question: str,
+) -> dict[str, Any] | None:
     resource_type = row["resource_type"]
     resource_id = row["resource_id"]
     fields = row.get("fields", {})
@@ -647,35 +999,53 @@ def _mock_fact_for_row(row: dict[str, Any], anchor: int) -> dict[str, Any] | Non
     builder = _MOCK_FACT_BUILDERS.get(resource_type)
     if builder is None:
         return None
-    return builder(fields, citation, anchor)
+    return builder(fields, citation, anchor, question)
 
 
 CitationPayload = list[dict[str, str]]
-MockFactBuilder = Callable[[dict[str, Any], CitationPayload, int], dict[str, Any]]
+MockFactBuilder = Callable[[dict[str, Any], CitationPayload, int, str], dict[str, Any]]
 
 
 def _medication_fact(
     fields: dict[str, Any],
     citation: CitationPayload,
     anchor: int,
+    question: str,
 ) -> dict[str, Any]:
     med = _coding_text(fields.get("medicationCodeableConcept")) or "Medication"
     authored = _clean_string(fields.get("authoredOn"))
+    status = _clean_string(fields.get("status"))
     text = f"{med} authored on {authored}" if authored else med
-    return _fact("medication", text, [med, authored], citation, anchor)
+    fact_type = "medication"
+    if status and status.lower() not in {"active", "unknown"}:
+        authored_text = f"authored on {authored}" if authored else ""
+        text = " ".join(part for part in [med, status, authored_text] if part)
+        fact_type = "medication_change"
+    elif _contains_any(question.lower(), ("stopped", "discontinued", "changed")):
+        fact_type = "medication_change"
+    return _fact(fact_type, text, [med, status, authored], citation, anchor)
 
 
 def _observation_fact(
     fields: dict[str, Any],
     citation: CitationPayload,
     anchor: int,
+    question: str,
 ) -> dict[str, Any]:
+    del question
     label = _coding_text(fields.get("code")) or "Observation"
     quantity = _quantity_text(fields.get("valueQuantity"))
     effective = _clean_string(fields.get("effectiveDateTime"))
     dated = f"on {effective}" if effective else ""
     text = " ".join(part for part in [label, quantity, dated] if part)
-    fact_type = "lab_result" if _is_lab_result(label, fields) else "observation"
+    if _is_lab_result(label, fields):
+        fact_type = "lab_result"
+    elif _is_vital_sign(label, fields):
+        fact_type = "vital_sign"
+    elif "code status" in label.lower():
+        fact_type = "code_status"
+    else:
+        fact_type = "observation"
     return _fact(fact_type, text, [label, quantity, effective], citation, anchor)
 
 
@@ -683,7 +1053,9 @@ def _immunization_fact(
     fields: dict[str, Any],
     citation: CitationPayload,
     anchor: int,
+    question: str,
 ) -> dict[str, Any]:
+    del question
     vaccine = _coding_text(fields.get("vaccineCode")) or "Immunization"
     status = _clean_string(fields.get("status"))
     occurred = _clean_string(fields.get("occurrenceDateTime"))
@@ -696,7 +1068,9 @@ def _allergy_fact(
     fields: dict[str, Any],
     citation: CitationPayload,
     anchor: int,
+    question: str,
 ) -> dict[str, Any]:
+    del question
     allergy = _coding_text(fields.get("code")) or "Allergy"
     return _fact("allergy", f"Allergy: {allergy}", [allergy], citation, anchor)
 
@@ -705,7 +1079,9 @@ def _problem_fact(
     fields: dict[str, Any],
     citation: CitationPayload,
     anchor: int,
+    question: str,
 ) -> dict[str, Any]:
+    del question
     problem = _coding_text(fields.get("code")) or "Problem"
     return _fact("problem", f"Problem: {problem}", [problem], citation, anchor)
 
@@ -714,7 +1090,9 @@ def _demographics_fact(
     fields: dict[str, Any],
     citation: CitationPayload,
     anchor: int,
+    question: str,
 ) -> dict[str, Any]:
+    del question
     name = _patient_name(fields.get("name")) or "Patient"
     birth_date = _clean_string(fields.get("birthDate"))
     gender = _clean_string(fields.get("gender"))
@@ -727,7 +1105,9 @@ def _encounter_fact(
     fields: dict[str, Any],
     citation: CitationPayload,
     anchor: int,
+    question: str,
 ) -> dict[str, Any]:
+    del question
     label = _first_coding_text(fields.get("type")) or "Encounter"
     return _fact("encounter", f"Encounter: {label}", [label], citation, anchor)
 
@@ -736,18 +1116,38 @@ def _note_fact(
     fields: dict[str, Any],
     citation: CitationPayload,
     anchor: int,
+    question: str,
 ) -> dict[str, Any]:
+    if fields.get("source") == "indexed_document_manifest":
+        filename = _clean_string(fields.get("filename")) or "Indexed document"
+        summary = _clean_string(fields.get("document_summary"))
+        text = ": ".join(part for part in [filename, summary] if part)
+        return _fact("document_fact", text, [filename, summary], citation, anchor)
+
     description = _clean_string(fields.get("description")) or "Clinical note"
     date = _clean_string(fields.get("date"))
     text = f"{description} on {date}" if date else description
-    return _fact("note", text, [description, date], citation, anchor)
+    fact_type = (
+        "medication_change"
+        if _contains_any(question.lower(), ("stopped", "discontinued", "changed"))
+        else "note"
+    )
+    return _fact(
+        fact_type,
+        text,
+        [description, date, _stringify(fields.get("content"))],
+        citation,
+        anchor,
+    )
 
 
 def _appointment_fact(
     fields: dict[str, Any],
     citation: CitationPayload,
     anchor: int,
+    question: str,
 ) -> dict[str, Any]:
+    del question
     description = _clean_string(fields.get("description")) or "Appointment"
     start = _clean_string(fields.get("start"))
     text = f"{description} on {start}" if start else description
@@ -758,7 +1158,9 @@ def _order_fact(
     fields: dict[str, Any],
     citation: CitationPayload,
     anchor: int,
+    question: str,
 ) -> dict[str, Any]:
+    del question
     order = _coding_text(fields.get("code")) or "Order"
     status = _clean_string(fields.get("status"))
     text = " ".join(part for part in [order, status] if part)
@@ -769,7 +1171,9 @@ def _procedure_fact(
     fields: dict[str, Any],
     citation: CitationPayload,
     anchor: int,
+    question: str,
 ) -> dict[str, Any]:
+    del question
     procedure = _coding_text(fields.get("code")) or "Procedure"
     performed = _clean_string(fields.get("performedDateTime"))
     text = f"{procedure} on {performed}" if performed else procedure
@@ -780,7 +1184,9 @@ def _care_plan_fact(
     fields: dict[str, Any],
     citation: CitationPayload,
     anchor: int,
+    question: str,
 ) -> dict[str, Any]:
+    del question
     description = _coding_text(fields.get("description")) or _clean_string(
         fields.get("description")
     )
@@ -793,9 +1199,51 @@ def _diagnostic_report_fact(
     fields: dict[str, Any],
     citation: CitationPayload,
     anchor: int,
+    question: str,
 ) -> dict[str, Any]:
+    del question
     report = _coding_text(fields.get("code")) or "Diagnostic report"
     return _fact("diagnostic_report", report, [report], citation, anchor)
+
+
+def _indexed_document_fact(
+    fields: dict[str, Any],
+    citation: CitationPayload,
+    anchor: int,
+    question: str,
+) -> dict[str, Any]:
+    del question
+    fact_type = _clean_string(fields.get("fact_type")) or "document_fact"
+    label = _clean_string(fields.get("label")) or _clean_string(fields.get("question"))
+    value = _clean_string(fields.get("value")) or _clean_string(fields.get("answer"))
+    unit = _clean_string(fields.get("unit"))
+    observed = _clean_string(fields.get("observed_on")) or _clean_string(fields.get("date"))
+    excerpt = _clean_string(fields.get("source_excerpt")) or _clean_string(fields.get("snippet"))
+    value_text = " ".join(part for part in [value, unit] if part)
+    if fact_type == "lab_result":
+        text = " ".join(
+            part
+            for part in [label or "Lab result", value_text, f"on {observed}" if observed else ""]
+            if part
+        )
+        if excerpt and excerpt not in text:
+            text = f"{text}; {excerpt}"
+    elif fact_type == "intake_answer":
+        text = ": ".join(part for part in [label or "Intake answer", value] if part)
+    elif fact_type == "note":
+        fact_type = "note"
+        text = excerpt or label or "Indexed note fact"
+    else:
+        text = excerpt or " ".join(part for part in [label, value_text, observed] if part)
+        if fact_type not in {"observation", "document_fact"}:
+            fact_type = "document_fact"
+    return _fact(
+        fact_type,
+        text,
+        [label, value, unit, observed, excerpt],
+        citation,
+        anchor,
+    )
 
 
 _MOCK_FACT_BUILDERS: dict[str, MockFactBuilder] = {
@@ -808,6 +1256,7 @@ _MOCK_FACT_BUILDERS: dict[str, MockFactBuilder] = {
     "Encounter": _encounter_fact,
     "Goal": _care_plan_fact,
     "Immunization": _immunization_fact,
+    "IndexedDocumentFact": _indexed_document_fact,
     "MedicationRequest": _medication_fact,
     "Observation": _observation_fact,
     "Patient": _demographics_fact,
@@ -883,6 +1332,17 @@ def _clean_string(value: object) -> str | None:
     return None
 
 
+def _stringify(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, default=str)
+    except TypeError:
+        return str(value)
+
+
 def _patient_name(value: object) -> str | None:
     if not isinstance(value, list):
         return None
@@ -904,6 +1364,20 @@ def _is_lab_result(label: str, fields: dict[str, Any]) -> bool:
         or "lab" in category_blob
         or "a1c" in label_lower
         or "hemoglobin" in label_lower
+    )
+
+
+def _is_vital_sign(label: str, fields: dict[str, Any]) -> bool:
+    category = fields.get("category")
+    category_blob = json.dumps(category).lower() if category is not None else ""
+    label_lower = label.lower()
+    return (
+        "vital-signs" in category_blob
+        or "vital" in category_blob
+        or "blood pressure" in label_lower
+        or "heart rate" in label_lower
+        or "body weight" in label_lower
+        or "bmi" in label_lower
     )
 
 

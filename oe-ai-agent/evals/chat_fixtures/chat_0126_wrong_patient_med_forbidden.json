@@ -1,0 +1,51 @@
+{
+  "label": "wrong patient medication citation is dropped",
+  "turns": [
+    {
+      "label": "wrong patient medication citation is dropped",
+      "user": "What medications is she taking?",
+      "expectations": {
+        "max_verified_facts": 0,
+        "forbidden_citations": [
+          "med-other-patient"
+        ],
+        "expected_tools_called": [
+          "get_active_medications"
+        ],
+        "expected_drop_rules": {
+          "tier1_patient_binding": 1
+        }
+      }
+    }
+  ],
+  "fhir": {
+    "MedicationRequest": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-other-patient",
+            "subject": {
+              "reference": "Patient/other-patient"
+            },
+            "status": "active",
+            "intent": "order",
+            "medicationCodeableConcept": {
+              "text": "Lisinopril 20 mg oral tablet"
+            },
+            "authoredOn": "{{TODAY-30D}}",
+            "dosageInstruction": [
+              {
+                "text": "Lisinopril 20 mg oral tablet"
+              }
+            ],
+            "meta": {
+              "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

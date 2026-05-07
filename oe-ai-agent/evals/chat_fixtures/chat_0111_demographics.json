@@ -1,0 +1,41 @@
+{
+  "label": "demographics route",
+  "turns": [
+    {
+      "label": "demographics route",
+      "user": "What name, DOB, and gender are in demographics?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "demographics"
+        ],
+        "expected_citations": [
+          "eval-patient-fixture"
+        ],
+        "expected_tools_called": [
+          "get_demographics"
+        ],
+        "facts_must_contain": [
+          "Eleanor Park",
+          "1965-08-12"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Patient": {
+      "resourceType": "Patient",
+      "id": "eval-patient-fixture",
+      "name": [
+        {
+          "text": "Eleanor Park"
+        }
+      ],
+      "gender": "female",
+      "birthDate": "1965-08-12",
+      "meta": {
+        "lastUpdated": "{{TODAY-7D}}T00:00:00+00:00"
+      }
+    }
+  }
+}

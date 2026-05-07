@@ -1,0 +1,54 @@
+{
+  "label": "active problems route",
+  "turns": [
+    {
+      "label": "active problems route",
+      "user": "What active problems are listed?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "problem"
+        ],
+        "expected_citations": [
+          "cond-ckd3"
+        ],
+        "expected_tools_called": [
+          "get_active_problems"
+        ],
+        "facts_must_contain": [
+          "Chronic kidney disease stage 3"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Condition": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Condition",
+            "id": "cond-ckd3",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "clinicalStatus": {
+              "coding": [
+                {
+                  "code": "active"
+                }
+              ]
+            },
+            "code": {
+              "text": "Chronic kidney disease stage 3"
+            },
+            "recordedDate": "{{TODAY-30D}}",
+            "meta": {
+              "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "label": "exact procedure date retained",
+  "turns": [
+    {
+      "label": "exact procedure date retained",
+      "user": "What procedure date is listed?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_citations": [
+          "proc-cataract"
+        ],
+        "expected_tools_called": [
+          "get_procedures"
+        ],
+        "facts_must_contain": [
+          "2024-02-14"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Procedure": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Procedure",
+            "id": "proc-cataract",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "completed",
+            "code": {
+              "text": "Cataract extraction"
+            },
+            "performedDateTime": "2024-02-14",
+            "meta": {
+              "lastUpdated": "2024-02-14T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "label": "indexed intake smoking answer",
+  "turns": [
+    {
+      "label": "indexed intake smoking answer",
+      "user": "What did the uploaded intake form say about smoking?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "intake_answer"
+        ],
+        "expected_citations": [
+          "idx-intake-smoking"
+        ],
+        "expected_tools_called": [
+          "get_indexed_intake_answers"
+        ],
+        "facts_must_contain": [
+          "Smoking status",
+          "Former smoker"
+        ]
+      }
+    }
+  ],
+  "fhir": {},
+  "api": {
+    "GET /ai/documents/indexed-facts/eval-patient-fixture/document": {
+      "facts": [
+        {
+          "resource_type": "IndexedDocumentFact",
+          "resource_id": "idx-intake-smoking",
+          "patient_id": "eval-patient-fixture",
+          "last_updated": "{{TODAY-14D}}T00:00:00+00:00",
+          "fields": {
+            "source": "indexed_document_fact",
+            "document_uuid": "doc-indexed-1",
+            "document_type": "intake_form",
+            "fact_type": "intake_answer",
+            "label": "Smoking status",
+            "value": "Former smoker",
+            "unit": null,
+            "observed_on": "{{TODAY-14D}}",
+            "source_excerpt": "Smoking status: Former smoker"
+          },
+          "verbatim_excerpt": "Smoking status: Former smoker"
+        }
+      ]
+    }
+  }
+}

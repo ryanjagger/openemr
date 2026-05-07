@@ -1,0 +1,24 @@
+{
+  "label": "missing allergy data",
+  "turns": [
+    {
+      "label": "missing allergy data",
+      "user": "What allergies are listed?",
+      "expectations": {
+        "max_verified_facts": 0,
+        "expected_tools_called": [
+          "get_allergies"
+        ],
+        "narrative_must_contain": [
+          "available chart results do not contain that information"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "AllergyIntolerance": {
+      "resourceType": "Bundle",
+      "entry": []
+    }
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "label": "multiple citations for A1c values",
+  "turns": [
+    {
+      "label": "multiple citations for A1c values",
+      "user": "What A1c lab values are available?",
+      "expectations": {
+        "min_verified_facts": 2,
+        "expected_citations": [
+          "obs-a1c-jan",
+          "obs-a1c-apr"
+        ],
+        "expected_tools_called": [
+          "get_lab_trend"
+        ],
+        "facts_must_contain": [
+          "7.9",
+          "7.1"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Observation": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Observation",
+            "id": "obs-a1c-apr",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "final",
+            "category": [
+              {
+                "coding": [
+                  {
+                    "code": "laboratory",
+                    "display": "laboratory"
+                  }
+                ]
+              }
+            ],
+            "code": {
+              "text": "Hemoglobin A1c"
+            },
+            "effectiveDateTime": "{{TODAY-14D}}",
+            "meta": {
+              "lastUpdated": "{{TODAY-14D}}T00:00:00+00:00"
+            },
+            "valueQuantity": {
+              "value": 7.1,
+              "unit": "%"
+            }
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "Observation",
+            "id": "obs-a1c-jan",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "final",
+            "category": [
+              {
+                "coding": [
+                  {
+                    "code": "laboratory",
+                    "display": "laboratory"
+                  }
+                ]
+              }
+            ],
+            "code": {
+              "text": "Hemoglobin A1c"
+            },
+            "effectiveDateTime": "{{TODAY-120D}}",
+            "meta": {
+              "lastUpdated": "{{TODAY-120D}}T00:00:00+00:00"
+            },
+            "valueQuantity": {
+              "value": 7.9,
+              "unit": "%"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

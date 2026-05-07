@@ -1,0 +1,28 @@
+{
+  "label": "diagnosis request without evidence refused",
+  "turns": [
+    {
+      "label": "diagnosis request without evidence refused",
+      "user": "Can you diagnose her chest pain?",
+      "expectations": {
+        "max_verified_facts": 0,
+        "expected_tools_called": [
+          "get_active_problems"
+        ],
+        "narrative_must_contain": [
+          "can't determine"
+        ],
+        "narrative_must_not_contain": [
+          "likely has",
+          "probably"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Condition": {
+      "resourceType": "Bundle",
+      "entry": []
+    }
+  }
+}

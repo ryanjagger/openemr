@@ -1,0 +1,24 @@
+{
+  "label": "missing recent notes data",
+  "turns": [
+    {
+      "label": "missing recent notes data",
+      "user": "What recent note is available?",
+      "expectations": {
+        "max_verified_facts": 0,
+        "expected_tools_called": [
+          "get_recent_notes"
+        ],
+        "narrative_must_contain": [
+          "available chart results do not contain that information"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "DocumentReference": {
+      "resourceType": "Bundle",
+      "entry": []
+    }
+  }
+}

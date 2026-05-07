@@ -1,0 +1,63 @@
+{
+  "label": "allergy route",
+  "turns": [
+    {
+      "label": "allergy route",
+      "user": "What allergies are listed?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "allergy"
+        ],
+        "expected_citations": [
+          "allergy-sulfa-current"
+        ],
+        "expected_tools_called": [
+          "get_allergies"
+        ],
+        "facts_must_contain": [
+          "Sulfonamide antibiotics"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "AllergyIntolerance": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "AllergyIntolerance",
+            "id": "allergy-sulfa-current",
+            "patient": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "clinicalStatus": {
+              "coding": [
+                {
+                  "code": "active"
+                }
+              ]
+            },
+            "code": {
+              "text": "Sulfonamide antibiotics"
+            },
+            "reaction": [
+              {
+                "manifestation": [
+                  {
+                    "text": "Hives"
+                  }
+                ]
+              }
+            ],
+            "criticality": "high",
+            "meta": {
+              "lastUpdated": "{{TODAY-90D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

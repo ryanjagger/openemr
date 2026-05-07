@@ -1,0 +1,51 @@
+{
+  "label": "narrative includes grounded citation anchor",
+  "turns": [
+    {
+      "label": "narrative includes grounded citation anchor",
+      "user": "What medications is she taking?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_citations": [
+          "med-anchor-lisinopril"
+        ],
+        "expected_tools_called": [
+          "get_active_medications"
+        ],
+        "narrative_must_contain": [
+          "[^1]"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "MedicationRequest": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-anchor-lisinopril",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "active",
+            "intent": "order",
+            "medicationCodeableConcept": {
+              "text": "Lisinopril 10 mg oral tablet"
+            },
+            "authoredOn": "{{TODAY-30D}}",
+            "dosageInstruction": [
+              {
+                "text": "Lisinopril 10 mg oral tablet"
+              }
+            ],
+            "meta": {
+              "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

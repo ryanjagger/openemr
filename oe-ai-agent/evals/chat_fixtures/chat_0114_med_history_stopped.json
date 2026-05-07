@@ -1,0 +1,55 @@
+{
+  "label": "medication history stopped route",
+  "turns": [
+    {
+      "label": "medication history stopped route",
+      "user": "Which medication was discontinued?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "medication_change"
+        ],
+        "expected_citations": [
+          "med-amlodipine-stopped"
+        ],
+        "expected_tools_called": [
+          "get_medication_history"
+        ],
+        "facts_must_contain": [
+          "Amlodipine",
+          "stopped"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "MedicationRequest": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-amlodipine-stopped",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "stopped",
+            "intent": "order",
+            "medicationCodeableConcept": {
+              "text": "Amlodipine 5 mg oral tablet"
+            },
+            "authoredOn": "{{TODAY-45D}}",
+            "dosageInstruction": [
+              {
+                "text": "Amlodipine 5 mg oral tablet"
+              }
+            ],
+            "meta": {
+              "lastUpdated": "{{TODAY-45D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "label": "appointment route",
+  "turns": [
+    {
+      "label": "appointment route",
+      "user": "What upcoming appointment is scheduled?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "appointment"
+        ],
+        "expected_citations": [
+          "appt-endocrine"
+        ],
+        "expected_tools_called": [
+          "get_appointments"
+        ],
+        "facts_must_contain": [
+          "Endocrinology follow-up"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Appointment": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Appointment",
+            "id": "appt-endocrine",
+            "status": "booked",
+            "description": "Endocrinology follow-up",
+            "start": "{{TODAY+14D}}T09:00:00+00:00",
+            "participant": [
+              {
+                "actor": {
+                  "reference": "Patient/eval-patient-fixture"
+                },
+                "status": "accepted"
+              }
+            ],
+            "meta": {
+              "lastUpdated": "{{TODAY-7D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "label": "active meds multiple route",
+  "turns": [
+    {
+      "label": "active meds multiple route",
+      "user": "List her medications.",
+      "expectations": {
+        "min_verified_facts": 2,
+        "expected_fact_types_present": [
+          "medication"
+        ],
+        "expected_citations": [
+          "med-lisinopril-current",
+          "med-atorvastatin-current"
+        ],
+        "expected_tools_called": [
+          "get_active_medications"
+        ],
+        "facts_must_contain": [
+          "Lisinopril",
+          "Atorvastatin"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "MedicationRequest": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-lisinopril-current",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "active",
+            "intent": "order",
+            "medicationCodeableConcept": {
+              "text": "Lisinopril 10 mg oral tablet"
+            },
+            "authoredOn": "{{TODAY-30D}}",
+            "dosageInstruction": [
+              {
+                "text": "Lisinopril 10 mg oral tablet"
+              }
+            ],
+            "meta": {
+              "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00"
+            }
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-atorvastatin-current",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "active",
+            "intent": "order",
+            "medicationCodeableConcept": {
+              "text": "Atorvastatin 20 mg oral tablet"
+            },
+            "authoredOn": "{{TODAY-30D}}",
+            "dosageInstruction": [
+              {
+                "text": "Atorvastatin 20 mg oral tablet"
+              }
+            ],
+            "meta": {
+              "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

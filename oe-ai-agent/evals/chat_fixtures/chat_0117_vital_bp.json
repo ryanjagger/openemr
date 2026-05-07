@@ -1,0 +1,63 @@
+{
+  "label": "vital sign observation route",
+  "turns": [
+    {
+      "label": "vital sign observation route",
+      "user": "What blood pressure vital is in the chart?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "vital_sign"
+        ],
+        "expected_citations": [
+          "obs-bp-latest"
+        ],
+        "expected_tools_called": [
+          "get_observations"
+        ],
+        "facts_must_contain": [
+          "Blood pressure",
+          "128"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Observation": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Observation",
+            "id": "obs-bp-latest",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "final",
+            "category": [
+              {
+                "coding": [
+                  {
+                    "code": "vital-signs",
+                    "display": "vital-signs"
+                  }
+                ]
+              }
+            ],
+            "code": {
+              "text": "Blood pressure systolic"
+            },
+            "effectiveDateTime": "{{TODAY-14D}}",
+            "meta": {
+              "lastUpdated": "{{TODAY-14D}}T00:00:00+00:00"
+            },
+            "valueQuantity": {
+              "value": 128,
+              "unit": "mmHg"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

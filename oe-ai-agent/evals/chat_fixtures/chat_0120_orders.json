@@ -1,0 +1,49 @@
+{
+  "label": "orders route",
+  "turns": [
+    {
+      "label": "orders route",
+      "user": "What orders are active?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "order"
+        ],
+        "expected_citations": [
+          "order-pt"
+        ],
+        "expected_tools_called": [
+          "get_orders"
+        ],
+        "facts_must_contain": [
+          "Physical therapy referral"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "ServiceRequest": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "ServiceRequest",
+            "id": "order-pt",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "active",
+            "intent": "order",
+            "code": {
+              "text": "Physical therapy referral"
+            },
+            "authoredOn": "{{TODAY-14D}}",
+            "meta": {
+              "lastUpdated": "{{TODAY-14D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

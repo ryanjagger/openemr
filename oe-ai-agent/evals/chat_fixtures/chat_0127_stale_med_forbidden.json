@@ -1,0 +1,51 @@
+{
+  "label": "stale current medication citation is dropped",
+  "turns": [
+    {
+      "label": "stale current medication citation is dropped",
+      "user": "What medications is she taking?",
+      "expectations": {
+        "max_verified_facts": 0,
+        "forbidden_citations": [
+          "med-warfarin-stale"
+        ],
+        "expected_tools_called": [
+          "get_active_medications"
+        ],
+        "expected_drop_rules": {
+          "tier1_staleness": 1
+        }
+      }
+    }
+  ],
+  "fhir": {
+    "MedicationRequest": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "MedicationRequest",
+            "id": "med-warfarin-stale",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "active",
+            "intent": "order",
+            "medicationCodeableConcept": {
+              "text": "Warfarin 5 mg oral tablet"
+            },
+            "authoredOn": "{{TODAY-500D}}",
+            "dosageInstruction": [
+              {
+                "text": "Warfarin 5 mg oral tablet"
+              }
+            ],
+            "meta": {
+              "lastUpdated": "{{TODAY-500D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

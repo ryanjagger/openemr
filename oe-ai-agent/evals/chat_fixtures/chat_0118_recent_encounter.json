@@ -1,0 +1,52 @@
+{
+  "label": "recent encounter route",
+  "turns": [
+    {
+      "label": "recent encounter route",
+      "user": "What recent visit is documented?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "encounter"
+        ],
+        "expected_citations": [
+          "enc-cardio-followup"
+        ],
+        "expected_tools_called": [
+          "get_recent_encounters"
+        ],
+        "facts_must_contain": [
+          "Cardiology follow-up"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Encounter": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Encounter",
+            "id": "enc-cardio-followup",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "finished",
+            "type": [
+              {
+                "text": "Cardiology follow-up"
+              }
+            ],
+            "period": {
+              "start": "{{TODAY-14D}}T10:00:00+00:00"
+            },
+            "meta": {
+              "lastUpdated": "{{TODAY-14D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

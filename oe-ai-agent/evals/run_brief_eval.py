@@ -8,9 +8,9 @@ costs API credits.
 Usage::
 
     export ANTHROPIC_API_KEY=sk-ant-...
-    uv run python evals/run_eval.py --label baseline
+    uv run python evals/run_brief_eval.py --label baseline
 
-Fixtures live in ``evals/fixtures/*.json``. Each fixture's ``fhir`` map
+Fixtures live in ``evals/brief_fixtures/*.json``. Each fixture's ``fhir`` map
 contains FHIR responses keyed by either ``Patient`` (returned for the
 ``Patient/{uuid}`` read) or any other resource type (returned for
 ``GET /{ResourceType}*`` searches). Date tokens of the form
@@ -59,7 +59,7 @@ from oe_ai_agent.config import FREETEXT_ITEM_TYPES
 from oe_ai_agent.llm import LiteLLMClient, LlmClient, MockLlmClient
 from oe_ai_agent.schemas.brief import BriefItem, BriefItemType, VerificationFailure
 
-DEFAULT_FIXTURES_DIR = Path(__file__).parent / "fixtures"
+DEFAULT_FIXTURES_DIR = Path(__file__).parent / "brief_fixtures"
 
 
 def main() -> int:
@@ -222,8 +222,7 @@ def _item_to_dict(item: BriefItem) -> dict[str, Any]:
         "text": item.text,
         "verbatim_excerpts": list(item.verbatim_excerpts),
         "citations": [
-            {"resource_type": c.resource_type, "resource_id": c.resource_id}
-            for c in item.citations
+            {"resource_type": c.resource_type, "resource_id": c.resource_id} for c in item.citations
         ],
     }
 

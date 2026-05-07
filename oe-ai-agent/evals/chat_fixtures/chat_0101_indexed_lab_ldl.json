@@ -1,0 +1,50 @@
+{
+  "label": "indexed lab report LDL fact",
+  "turns": [
+    {
+      "label": "indexed lab report LDL fact",
+      "user": "What does the uploaded lab report say about LDL?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "lab_result"
+        ],
+        "expected_citations": [
+          "idx-lab-ldl"
+        ],
+        "expected_tools_called": [
+          "get_indexed_lab_results"
+        ],
+        "facts_must_contain": [
+          "LDL cholesterol",
+          "142"
+        ]
+      }
+    }
+  ],
+  "fhir": {},
+  "api": {
+    "GET /ai/documents/indexed-facts/eval-patient-fixture/document": {
+      "facts": [
+        {
+          "resource_type": "IndexedDocumentFact",
+          "resource_id": "idx-lab-ldl",
+          "patient_id": "eval-patient-fixture",
+          "last_updated": "{{TODAY-21D}}T00:00:00+00:00",
+          "fields": {
+            "source": "indexed_document_fact",
+            "document_uuid": "doc-indexed-1",
+            "document_type": "lab_report",
+            "fact_type": "lab_result",
+            "label": "LDL cholesterol",
+            "value": "142",
+            "unit": "mg/dL",
+            "observed_on": "{{TODAY-21D}}",
+            "source_excerpt": "LDL cholesterol 142 mg/dL {{TODAY-21D}}"
+          },
+          "verbatim_excerpt": "LDL cholesterol 142 mg/dL {{TODAY-21D}}"
+        }
+      ]
+    }
+  }
+}

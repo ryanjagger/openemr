@@ -1,0 +1,49 @@
+{
+  "label": "immunization route",
+  "turns": [
+    {
+      "label": "immunization route",
+      "user": "What immunizations are recorded?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "immunization"
+        ],
+        "expected_citations": [
+          "imm-influenza"
+        ],
+        "expected_tools_called": [
+          "get_immunizations"
+        ],
+        "facts_must_contain": [
+          "Influenza vaccine"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Immunization": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Immunization",
+            "id": "imm-influenza",
+            "patient": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "completed",
+            "vaccineCode": {
+              "text": "Influenza vaccine"
+            },
+            "occurrenceDateTime": "{{TODAY-60D}}",
+            "primarySource": true,
+            "meta": {
+              "lastUpdated": "{{TODAY-60D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

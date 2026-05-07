@@ -1,0 +1,62 @@
+{
+  "label": "exact lab value retained",
+  "turns": [
+    {
+      "label": "exact lab value retained",
+      "user": "What is the creatinine lab result?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_citations": [
+          "obs-creatinine"
+        ],
+        "expected_tools_called": [
+          "get_lab_trend"
+        ],
+        "facts_must_contain": [
+          "1.8"
+        ],
+        "facts_must_not_contain": [
+          "8.1"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Observation": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Observation",
+            "id": "obs-creatinine",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "final",
+            "category": [
+              {
+                "coding": [
+                  {
+                    "code": "laboratory",
+                    "display": "laboratory"
+                  }
+                ]
+              }
+            ],
+            "code": {
+              "text": "Creatinine"
+            },
+            "effectiveDateTime": "{{TODAY-14D}}",
+            "meta": {
+              "lastUpdated": "{{TODAY-14D}}T00:00:00+00:00"
+            },
+            "valueQuantity": {
+              "value": 1.8,
+              "unit": "mg/dL"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

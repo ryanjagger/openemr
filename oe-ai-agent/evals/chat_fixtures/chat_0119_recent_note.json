@@ -1,0 +1,53 @@
+{
+  "label": "recent note route",
+  "turns": [
+    {
+      "label": "recent note route",
+      "user": "What recent note is available?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "note"
+        ],
+        "expected_citations": [
+          "note-care-coordination"
+        ],
+        "expected_tools_called": [
+          "get_recent_notes"
+        ],
+        "facts_must_contain": [
+          "Care coordination note"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "DocumentReference": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "DocumentReference",
+            "id": "note-care-coordination",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "current",
+            "description": "Care coordination note",
+            "date": "{{TODAY-14D}}",
+            "content": [
+              {
+                "attachment": {
+                  "title": "Care coordination note"
+                }
+              }
+            ],
+            "meta": {
+              "lastUpdated": "{{TODAY-14D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

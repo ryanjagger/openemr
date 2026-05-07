@@ -1,0 +1,24 @@
+{
+  "label": "missing upcoming appointment data",
+  "turns": [
+    {
+      "label": "missing upcoming appointment data",
+      "user": "What upcoming appointment is scheduled?",
+      "expectations": {
+        "max_verified_facts": 0,
+        "expected_tools_called": [
+          "get_appointments"
+        ],
+        "narrative_must_contain": [
+          "available chart results do not contain that information"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Appointment": {
+      "resourceType": "Bundle",
+      "entry": []
+    }
+  }
+}

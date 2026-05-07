@@ -1,0 +1,47 @@
+{
+  "label": "unindexed extraction returns no facts",
+  "turns": [
+    {
+      "label": "unindexed extraction returns no facts",
+      "user": "Please use the recent uploaded unindexed lab report to find troponin.",
+      "expectations": {
+        "max_verified_facts": 0,
+        "expected_tools_called": [
+          "extract_documents"
+        ],
+        "narrative_must_contain": [
+          "available chart results do not contain that information"
+        ]
+      }
+    }
+  ],
+  "fhir": {},
+  "api": {
+    "GET /ai/documents/recent/eval-patient-fixture": {
+      "documents": [
+        {
+          "id": 104,
+          "uuid": "doc-empty-lab",
+          "filename": "empty-lab-report.pdf",
+          "mimetype": "application/pdf",
+          "docdate": "{{TODAY-7D}}",
+          "category_name": "Lab Results"
+        }
+      ]
+    },
+    "POST /ai/documents/ingest/eval-patient-fixture": {
+      "job_id": "job-empty-lab"
+    },
+    "GET /ai/documents/eval-patient-fixture/jobs/job-empty-lab": {
+      "status": "completed",
+      "documents": [
+        {
+          "uuid": "doc-empty-lab"
+        }
+      ]
+    },
+    "GET /ai/documents/indexed-facts/eval-patient-fixture/document": {
+      "facts": []
+    }
+  }
+}

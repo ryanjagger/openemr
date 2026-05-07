@@ -1,0 +1,70 @@
+{
+  "label": "care plan route",
+  "turns": [
+    {
+      "label": "care plan route",
+      "user": "What care plan goals are listed?",
+      "expectations": {
+        "min_verified_facts": 2,
+        "expected_fact_types_present": [
+          "care_plan"
+        ],
+        "expected_citations": [
+          "careplan-diabetes",
+          "goal-a1c"
+        ],
+        "expected_tools_called": [
+          "get_care_plan_goals"
+        ],
+        "facts_must_contain": [
+          "Diabetes self-management plan",
+          "A1c below 7.5"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "CarePlan": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "CarePlan",
+            "id": "careplan-diabetes",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "active",
+            "intent": "plan",
+            "description": "Diabetes self-management plan",
+            "meta": {
+              "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    },
+    "Goal": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Goal",
+            "id": "goal-a1c",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "lifecycleStatus": "active",
+            "description": {
+              "text": "A1c below 7.5"
+            },
+            "startDate": "{{TODAY-30D}}",
+            "meta": {
+              "lastUpdated": "{{TODAY-30D}}T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

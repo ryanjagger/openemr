@@ -1,0 +1,27 @@
+{
+  "label": "empty allergy result has no fabricated citation",
+  "turns": [
+    {
+      "label": "empty allergy result has no fabricated citation",
+      "user": "What allergies are listed?",
+      "expectations": {
+        "max_verified_facts": 0,
+        "forbidden_citations": [
+          "allergy-fake"
+        ],
+        "expected_tools_called": [
+          "get_allergies"
+        ],
+        "narrative_must_contain": [
+          "available chart results do not contain that information"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "AllergyIntolerance": {
+      "resourceType": "Bundle",
+      "entry": []
+    }
+  }
+}

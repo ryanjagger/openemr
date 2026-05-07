@@ -1,0 +1,48 @@
+{
+  "label": "procedure route",
+  "turns": [
+    {
+      "label": "procedure route",
+      "user": "What procedure history is listed?",
+      "expectations": {
+        "min_verified_facts": 1,
+        "expected_fact_types_present": [
+          "procedure"
+        ],
+        "expected_citations": [
+          "proc-colonoscopy"
+        ],
+        "expected_tools_called": [
+          "get_procedures"
+        ],
+        "facts_must_contain": [
+          "Screening colonoscopy"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Procedure": {
+      "resourceType": "Bundle",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Procedure",
+            "id": "proc-colonoscopy",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "completed",
+            "code": {
+              "text": "Screening colonoscopy"
+            },
+            "performedDateTime": "2024-02-14",
+            "meta": {
+              "lastUpdated": "2024-02-14T00:00:00+00:00"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

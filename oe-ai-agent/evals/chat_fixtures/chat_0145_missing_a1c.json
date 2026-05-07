@@ -1,0 +1,24 @@
+{
+  "label": "missing A1c data",
+  "turns": [
+    {
+      "label": "missing A1c data",
+      "user": "What is her A1c lab trend?",
+      "expectations": {
+        "max_verified_facts": 0,
+        "expected_tools_called": [
+          "get_lab_trend"
+        ],
+        "narrative_must_contain": [
+          "available chart results do not contain that information"
+        ]
+      }
+    }
+  ],
+  "fhir": {
+    "Observation": {
+      "resourceType": "Bundle",
+      "entry": []
+    }
+  }
+}
