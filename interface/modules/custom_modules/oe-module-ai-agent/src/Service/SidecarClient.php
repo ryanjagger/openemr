@@ -26,7 +26,10 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 final class SidecarClient
 {
     private const BRIEF_TIMEOUT_SECONDS = 30.0;
-    private const CHAT_TIMEOUT_SECONDS = 90.0;
+    // Supervisor + evidence + (optional) extractor + finalize routinely takes
+    // longer than a single-LLM-call chat. Observed 97s on a real turn that the
+    // 90s cap killed mid-flight. Override per-deploy with AI_AGENT_CHAT_TIMEOUT_SECONDS.
+    private const CHAT_TIMEOUT_SECONDS = 180.0;
     private const DOCUMENT_TIMEOUT_SECONDS = 180.0;
 
     public function __construct(

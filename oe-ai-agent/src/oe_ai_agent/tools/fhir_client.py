@@ -98,6 +98,16 @@ class FhirClient:
         response = await self._client.get(url, headers=self._api_headers(), params=params or {})
         return self._parse_json(response, "OpenEMR API")
 
+    async def api_post(
+        self,
+        path: str,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        url = f"{self._api_base_url()}/{path.lstrip('/')}"
+        headers = {**self._api_headers(), "Content-Type": "application/json"}
+        response = await self._client.post(url, headers=headers, json=body)
+        return self._parse_json(response, "OpenEMR API")
+
     @staticmethod
     def _parse(response: httpx.Response) -> dict[str, Any]:
         return FhirClient._parse_json(response, "FHIR")

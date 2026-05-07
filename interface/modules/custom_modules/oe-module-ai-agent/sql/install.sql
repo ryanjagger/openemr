@@ -32,7 +32,15 @@ INSERT INTO `oauth_clients` (
     NULL,
     '',
     '',
-    'openid api:fhir api:oemr user/Patient.read user/Appointment.read user/CarePlan.read user/Condition.read user/MedicationRequest.read user/AllergyIntolerance.read user/Encounter.read user/Goal.read user/Observation.read user/DocumentReference.read user/ServiceRequest.read user/Procedure.read user/Immunization.read user/document.read',
+    -- The /api/ai/documents/* sub-routes have OpenEMR's URL-derived scope
+    -- inference fall back to the path's last non-parameter segment as the
+    -- resource name (HttpRestParsedRoute::parseRouteParams). That makes
+    -- /recent/:pid require user/recent.read, /ingest/:pid require
+    -- user/ingest.write, /jobs/:pid/:jobId require user/jobs.read, and
+    -- /auto-ingest/.../document require user/document.write. These are
+    -- internal scope identifiers for our private OAuth client, not real
+    -- OpenEMR resources, so it is safe to grant them here.
+    'openid api:fhir api:oemr user/Patient.read user/Appointment.read user/CarePlan.read user/Condition.read user/MedicationRequest.read user/AllergyIntolerance.read user/Encounter.read user/Goal.read user/Observation.read user/DocumentReference.read user/ServiceRequest.read user/Procedure.read user/Immunization.read user/document.read user/document.write user/recent.read user/ingest.write user/jobs.read',
     0,
     1,
     NOW()

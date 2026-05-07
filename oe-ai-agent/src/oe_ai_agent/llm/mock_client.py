@@ -109,12 +109,16 @@ def _synthesize_from_context(
 ) -> str:
     """Build schema-valid JSON that cites real rows surfaced in the prompt."""
     blob = "\n".join(_content_to_text(m.get("content", "")) for m in messages)
+    schema_name = (
+        response_format.get("json_schema", {}).get("name")
+        if response_format is not None
+        else None
+    )
+    if schema_name == "SupervisorRoute":
+        return _synthesize_supervisor_route(blob)
     rows = list(_CONTEXT_LINE_RE.finditer(blob))
     items: list[dict[str, Any]] = []
-    is_chat = (
-        response_format is not None
-        and response_format.get("json_schema", {}).get("name") == "ChatTurn"
-    )
+    is_chat = schema_name == "ChatTurn"
 
     for match in rows:
         rtype = match["rtype"]
@@ -141,6 +145,40 @@ def _synthesize_from_context(
         )
 
     return json.dumps({"items": items, "verification_failures": []})
+
+
+def _synthesize_supervisor_route(prompt_blob: str) -> str:
+    """Pick a deterministic supervisor route from prompt content.
+
+    Heuristics — these only run in mock mode where there is no real
+    supervisor LLM. They mimic the rules in ``prompts_supervisor`` so
+    integration tests with the synthesizing mock take a sensible path:
+
+    * If the unindexed-documents block is non-empty AND the extractor has
+      not yet run AND the user message looks like a document question,
+      route to ``extractor``.
+    * Else if evidence_retriever has not yet run, route to
+      ``evidence_retriever`` so the model gathers chart context.
+    * Else route to ``finalize``.
+    """
+    has_unindexed = "UNINDEXED DOCUMENTS (0)" not in prompt_blob and (
+        "UNINDEXED DOCUMENTS" in prompt_blob
+    )
+    extractor_runs_zero = "extractor_runs=0" in prompt_blob
+    evidence_runs_zero = "evidence_runs=0" in prompt_blob
+    user_msg_lower = prompt_blob.lower()
+    document_intent = any(
+        token in user_msg_lower
+        for token in ("upload", "lab report", "intake", "document", "pdf", "scan")
+    )
+
+    if has_unindexed and extractor_runs_zero and document_intent:
+        return json.dumps({"next": "extractor", "reason": "mock: unindexed doc relevant"})
+    if evidence_runs_zero:
+        return json.dumps(
+            {"next": "evidence_retriever", "reason": "mock: gather chart evidence"}
+        )
+    return json.dumps({"next": "finalize", "reason": "mock: workers finished"})
 
 
 def _content_to_text(content: object) -> str:

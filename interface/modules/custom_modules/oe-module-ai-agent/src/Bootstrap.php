@@ -79,7 +79,7 @@ final class Bootstrap
             },
         );
         $event->addToRouteMap(
-            'GET /api/ai/documents/jobs/:pid/:jobId',
+            'GET /api/ai/documents/:pid/jobs/:jobId',
             function (string $pid, string $jobId, HttpRestRequest $request): JsonResponse {
                 return DocumentIngestionController::default()->job($pid, $jobId, $request);
             },

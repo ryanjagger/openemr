@@ -56,6 +56,17 @@ final class BearerTokenMinter
         ...self::FHIR_READ_SCOPES,
         'api:oemr',
         'user/document.read',
+        // Scopes derived by HttpRestParsedRoute::parseRouteParams from the
+        // /api/ai/documents/* sub-routes (last non-parameter path segment).
+        // The supervisor's extractor worker calls these endpoints:
+        //   GET  /api/ai/documents/recent/:pid       -> user/recent.read
+        //   POST /api/ai/documents/ingest/:pid       -> user/ingest.write
+        //   GET  /api/ai/documents/jobs/:pid/:jobId  -> user/jobs.read
+        // These are internal scope identifiers for our private OAuth client,
+        // not real OpenEMR resources, but the dispatcher requires them.
+        'user/recent.read',
+        'user/ingest.write',
+        'user/jobs.read',
     ];
 
     public function __construct(

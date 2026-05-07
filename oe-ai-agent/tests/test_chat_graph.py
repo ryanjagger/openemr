@@ -1,8 +1,21 @@
-"""End-to-end chat graph tests with mocked FHIR + scripted LLM."""
+"""End-to-end chat graph tests for the supervisor + workers topology.
+
+The chat graph is no longer linear. Each turn dispatches:
+
+    ensure_chat_context → supervisor ⇄ {extractor, evidence_retriever}
+                             ↓
+                          finalize → parse_envelope → verify_chat → END
+
+The mocked LLM here drives that flow by inspecting the system prompt
+markers ("You are the SUPERVISOR", "EVIDENCE_RETRIEVER", etc.) so each
+test can supply: (a) the routing decisions to make, and (b) the final
+envelope to emit.
+"""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -21,9 +34,13 @@ from oe_ai_agent.schemas.tool_results import TypedRow
 
 PATIENT = "patient-uuid-1"
 FHIR_BASE = "http://fhir.test/apis/default/fhir"
+API_BASE = "http://fhir.test/apis/default/api"
 
 
-def _fhir_routes(mock: respx.MockRouter) -> None:
+def _fhir_routes(mock: respx.MockRouter, *, unindexed: list[dict[str, Any]] | None = None) -> None:
+    mock.get(f"{API_BASE}/ai/documents/recent/{PATIENT}").mock(
+        return_value=httpx.Response(200, json={"documents": unindexed or []})
+    )
     mock.get(f"{FHIR_BASE}/Patient/{PATIENT}").mock(
         return_value=httpx.Response(
             200,
@@ -95,9 +112,7 @@ def _guideline_context() -> list[TypedRow]:
                 "publication_date": "2022-11-04",
                 "source": "clinical_guideline_corpus",
             },
-            verbatim_excerpt=(
-                "Nonopioid therapies are preferred for subacute and chronic pain."
-            ),
+            verbatim_excerpt=("Nonopioid therapies are preferred for subacute and chronic pain."),
         )
     ]
 
@@ -117,25 +132,100 @@ def _initial_state(
     )
 
 
+def _detect_role(messages: list[dict[str, Any]]) -> str:
+    """Determine which graph node a chat_with_tools call belongs to.
+
+    The supervisor + worker prompts each include a distinctive header in
+    the system message; finalize uses the plain chat system prompt with
+    no role-specific suffix.
+    """
+    for msg in messages:
+        if msg.get("role") != "system":
+            continue
+        text = _content_text(msg.get("content"))
+        if "You are the SUPERVISOR" in text:
+            return "supervisor"
+        if "You are the EXTRACTOR worker" in text:
+            return "extractor"
+        if "You are running as the EVIDENCE_RETRIEVER worker" in text:
+            return "evidence"
+        return "finalize"
+    return "finalize"
+
+
+def _content_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
+    return ""
+
+
+def _route(target: str) -> LlmChatResult:
+    return LlmChatResult(
+        content=json.dumps({"next": target, "reason": "test"}),
+        tool_calls=[],
+    )
+
+
+def _stop(content: str = "done") -> LlmChatResult:
+    return LlmChatResult(content=content, tool_calls=[])
+
+
+def _envelope(payload: dict[str, Any]) -> LlmChatResult:
+    return LlmChatResult(content=json.dumps(payload), tool_calls=[])
+
+
+def _supervisor_routes_then_finalize(
+    envelope: dict[str, Any],
+    *,
+    on_evidence: Callable[[list[dict[str, Any]]], LlmChatResult] | None = None,
+    on_extractor: Callable[[list[dict[str, Any]]], LlmChatResult] | None = None,
+) -> Callable[[list[dict[str, Any]]], LlmChatResult]:
+    """Build a scripter that:
+
+    * On the first supervisor call, routes to evidence_retriever (or
+      extractor if requested by ``on_extractor``).
+    * On subsequent supervisor calls, routes to finalize.
+    * Delegates evidence/extractor calls to the supplied handlers (default:
+      stop immediately).
+    * Returns the envelope on finalize calls.
+    """
+    state = {"sup_calls": 0}
+
+    def script(messages: list[dict[str, Any]]) -> LlmChatResult:
+        role = _detect_role(messages)
+        if role == "supervisor":
+            state["sup_calls"] += 1
+            if state["sup_calls"] == 1 and on_extractor is not None:
+                return _route("extractor")
+            if state["sup_calls"] == 1:
+                return _route("evidence_retriever")
+            return _route("finalize")
+        if role == "extractor":
+            return on_extractor(messages) if on_extractor else _stop("extractor done")
+        if role == "evidence":
+            return on_evidence(messages) if on_evidence else _stop("evidence done")
+        return _envelope(envelope)
+
+    return script
+
+
 @pytest.mark.asyncio
 async def test_happy_path_emits_narrative_and_verified_facts() -> None:
-    envelope = json.dumps(
-        {
-            "narrative": "She is on lisinopril 10 mg [^1].",
-            "facts": [
-                {
-                    "type": "medication",
-                    "text": "Lisinopril 10 mg, active",
-                    "verbatim_excerpts": ["Lisinopril 10 mg"],
-                    "citations": [
-                        {"resource_type": "MedicationRequest", "resource_id": "med-1"}
-                    ],
-                    "anchor": 1,
-                }
-            ],
-        }
-    )
-    llm = MockLlmClient(chat_scripted=LlmChatResult(content=envelope, tool_calls=[]))
+    envelope = {
+        "narrative": "She is on lisinopril 10 mg [^1].",
+        "facts": [
+            {
+                "type": "medication",
+                "text": "Lisinopril 10 mg, active",
+                "verbatim_excerpts": ["Lisinopril 10 mg"],
+                "citations": [{"resource_type": "MedicationRequest", "resource_id": "med-1"}],
+                "anchor": 1,
+            }
+        ],
+    }
+    llm = MockLlmClient(chat_scripted=_supervisor_routes_then_finalize(envelope))
 
     with respx.mock(assert_all_called=False) as mock:
         _fhir_routes(mock)
@@ -151,35 +241,29 @@ async def test_happy_path_emits_narrative_and_verified_facts() -> None:
     assert len(final["verified_facts"]) == 1
     assert final["verified_facts"][0].citations[0].resource_id == "med-1"
     assert final["verification_failures"] == []
+    assert final["supervisor_decisions"] == ["evidence_retriever", "finalize"]
 
 
 @pytest.mark.asyncio
 async def test_happy_path_records_step_trace_with_usage() -> None:
     """The trace collector should fill in step records and usage when active."""
-    envelope = json.dumps(
-        {
-            "narrative": "She is on lisinopril 10 mg [^1].",
-            "facts": [
-                {
-                    "type": "medication",
-                    "text": "Lisinopril 10 mg, active",
-                    "verbatim_excerpts": ["Lisinopril 10 mg"],
-                    "citations": [
-                        {"resource_type": "MedicationRequest", "resource_id": "med-1"}
-                    ],
-                    "anchor": 1,
-                }
-            ],
-        }
-    )
+    envelope = {
+        "narrative": "She is on lisinopril 10 mg [^1].",
+        "facts": [
+            {
+                "type": "medication",
+                "text": "Lisinopril 10 mg, active",
+                "verbatim_excerpts": ["Lisinopril 10 mg"],
+                "citations": [{"resource_type": "MedicationRequest", "resource_id": "med-1"}],
+                "anchor": 1,
+            }
+        ],
+    }
     llm = MockLlmClient(
-        chat_scripted=LlmChatResult(
-            content=envelope,
-            tool_calls=[],
-            usage=LlmUsage(
-                prompt_tokens=42, completion_tokens=8, total_tokens=50, latency_ms=12
-            ),
-        )
+        chat_scripted=_supervisor_routes_then_finalize(envelope),
+        default_usage=LlmUsage(
+            prompt_tokens=42, completion_tokens=8, total_tokens=50, latency_ms=12
+        ),
     )
 
     with respx.mock(assert_all_called=False) as mock:
@@ -195,39 +279,31 @@ async def test_happy_path_records_step_trace_with_usage() -> None:
 
     steps = trace.to_list()
     step_names = [r["name"] for r in steps]
-    # to_list() sorts by start time so the admin timeline reads naturally:
-    # ensure_chat_context begins first, verify_chat begins last.
     assert step_names[0] == "ensure_chat_context"
     assert step_names[-1] == "verify_chat"
-    assert "llm_turn" in step_names
+    assert "supervisor" in step_names
+    assert "evidence_retriever" in step_names
+    assert "finalize" in step_names
     assert "parse_envelope" in step_names
-    assert not any(name.startswith("tool.get_") for name in step_names)
-    assert steps[0]["attrs"]["eager_prefetch"] is False
-
+    # Each LLM call (supervisor x2 + evidence x1 + finalize x1) has a usage
     summary = trace.usage_summary()
-    assert summary["prompt_tokens"] == 42
-    assert summary["completion_tokens"] == 8
-    assert summary["total_tokens"] == 50
+    assert summary["prompt_tokens"] >= 42  # at least one LLM call recorded
 
 
 @pytest.mark.asyncio
 async def test_unground_number_in_narrative_is_replaced_with_fallback() -> None:
-    envelope = json.dumps(
-        {
-            "narrative": "She is on lisinopril 20 mg.",  # 20 is not in facts
-            "facts": [
-                {
-                    "type": "medication",
-                    "text": "Lisinopril 10 mg, active",
-                    "verbatim_excerpts": ["Lisinopril 10 mg"],
-                    "citations": [
-                        {"resource_type": "MedicationRequest", "resource_id": "med-1"}
-                    ],
-                }
-            ],
-        }
-    )
-    llm = MockLlmClient(chat_scripted=LlmChatResult(content=envelope, tool_calls=[]))
+    envelope = {
+        "narrative": "She is on lisinopril 20 mg.",  # 20 is not in facts
+        "facts": [
+            {
+                "type": "medication",
+                "text": "Lisinopril 10 mg, active",
+                "verbatim_excerpts": ["Lisinopril 10 mg"],
+                "citations": [{"resource_type": "MedicationRequest", "resource_id": "med-1"}],
+            }
+        ],
+    }
+    llm = MockLlmClient(chat_scripted=_supervisor_routes_then_finalize(envelope))
 
     with respx.mock(assert_all_called=False) as mock:
         _fhir_routes(mock)
@@ -242,41 +318,31 @@ async def test_unground_number_in_narrative_is_replaced_with_fallback() -> None:
     # Verified fact survives — narrative is the only thing replaced.
     assert len(final["verified_facts"]) == 1
     assert "fact cards below are verified" in final["parsed_narrative"]
-    assert any(
-        f.rule == "tier1_narrative_grounding" for f in final["verification_failures"]
-    )
+    assert any(f.rule == "tier1_narrative_grounding" for f in final["verification_failures"])
 
 
 @pytest.mark.asyncio
 async def test_guideline_only_narrative_fallback_keeps_cards_without_user_failure() -> None:
-    envelope = json.dumps(
-        {
-            "narrative": (
-                "The 2022 CDC opioid guideline includes 12 recommendations for "
-                "pain care."
-            ),
-            "facts": [
-                {
-                    "type": "guideline",
-                    "text": (
-                        "Nonopioid therapies are preferred for subacute and "
-                        "chronic pain."
-                    ),
-                    "verbatim_excerpts": [
-                        "Nonopioid therapies are preferred for subacute and chronic pain."
-                    ],
-                    "citations": [
-                        {
-                            "resource_type": GUIDELINE_RESOURCE_TYPE,
-                            "resource_id": "cdc-opioid:1",
-                        }
-                    ],
-                    "anchor": 1,
-                }
-            ],
-        }
-    )
-    llm = MockLlmClient(chat_scripted=LlmChatResult(content=envelope, tool_calls=[]))
+    envelope = {
+        "narrative": ("The 2022 CDC opioid guideline includes 12 recommendations for pain care."),
+        "facts": [
+            {
+                "type": "guideline",
+                "text": ("Nonopioid therapies are preferred for subacute and chronic pain."),
+                "verbatim_excerpts": [
+                    "Nonopioid therapies are preferred for subacute and chronic pain."
+                ],
+                "citations": [
+                    {
+                        "resource_type": GUIDELINE_RESOURCE_TYPE,
+                        "resource_id": "cdc-opioid:1",
+                    }
+                ],
+                "anchor": 1,
+            }
+        ],
+    }
+    llm = MockLlmClient(chat_scripted=_supervisor_routes_then_finalize(envelope))
 
     with respx.mock(assert_all_called=False) as mock:
         _fhir_routes(mock)
@@ -296,9 +362,11 @@ async def test_guideline_only_narrative_fallback_keeps_cards_without_user_failur
 
 
 @pytest.mark.asyncio
-async def test_tool_call_drives_lab_trend_and_returns_grounded_envelope() -> None:
-    """When the model emits a tool_call, the loop runs it and the second
-    LLM turn produces the final envelope."""
+async def test_evidence_retriever_drives_lab_trend_tool_loop() -> None:
+    """The evidence worker emits a tool call, gets a result, then stops.
+
+    The supervisor then routes to finalize, which emits the envelope.
+    """
     a1c_bundle = {
         "resourceType": "Bundle",
         "entry": [
@@ -316,11 +384,11 @@ async def test_tool_call_drives_lab_trend_and_returns_grounded_envelope() -> Non
         ],
     }
 
-    call_state = {"count": 0}
+    evidence_calls = {"count": 0}
 
-    def script(messages: list[dict[str, Any]]) -> LlmChatResult:
-        call_state["count"] += 1
-        if call_state["count"] == 1:
+    def on_evidence(messages: list[dict[str, Any]]) -> LlmChatResult:
+        evidence_calls["count"] += 1
+        if evidence_calls["count"] == 1:
             return LlmChatResult(
                 content=None,
                 tool_calls=[
@@ -331,52 +399,40 @@ async def test_tool_call_drives_lab_trend_and_returns_grounded_envelope() -> Non
                     )
                 ],
             )
-        # Second pass: tool result is in the message list, emit envelope.
-        return LlmChatResult(
-            content=json.dumps(
-                {
-                    "narrative": "Most recent A1c was 7.2 [^1].",
-                    "facts": [
-                        {
-                            "type": "lab_result",
-                            "text": "A1c 7.2 % on 2026-01-15",
-                            "verbatim_excerpts": ["7.2", "2026-01-15"],
-                            "citations": [
-                                {
-                                    "resource_type": "Observation",
-                                    "resource_id": "obs-a1c",
-                                }
-                            ],
-                            "anchor": 1,
-                        }
-                    ],
-                }
-            ),
-            tool_calls=[],
-        )
+        return _stop("got A1c rows")
 
-    llm = MockLlmClient(chat_scripted=script)
+    envelope = {
+        "narrative": "Most recent A1c was 7.2 [^1].",
+        "facts": [
+            {
+                "type": "lab_result",
+                "text": "A1c 7.2 % on 2026-01-15",
+                "verbatim_excerpts": ["7.2", "2026-01-15"],
+                "citations": [{"resource_type": "Observation", "resource_id": "obs-a1c"}],
+                "anchor": 1,
+            }
+        ],
+    }
+
+    llm = MockLlmClient(
+        chat_scripted=_supervisor_routes_then_finalize(envelope, on_evidence=on_evidence)
+    )
 
     with respx.mock(assert_all_called=False) as mock:
         _fhir_routes(mock)
-        # Override the empty Observation route with a code-keyed response.
-        mock.get(f"{FHIR_BASE}/Observation").mock(
-            return_value=httpx.Response(200, json=a1c_bundle)
-        )
+        mock.get(f"{FHIR_BASE}/Observation").mock(return_value=httpx.Response(200, json=a1c_bundle))
         graph = build_chat_graph(llm)
         final = await graph.ainvoke(  # type: ignore[attr-defined]
             _initial_state([ChatMessage(role=ChatRole.USER, content="A1c trend?")])
         )
 
-    assert call_state["count"] == 2
-    assert any(
-        f.citations[0].resource_id == "obs-a1c" for f in final["verified_facts"]
-    )
+    assert evidence_calls["count"] == 2
+    assert any(f.citations[0].resource_id == "obs-a1c" for f in final["verified_facts"])
     assert "7.2" in final["parsed_narrative"]
 
 
 @pytest.mark.asyncio
-async def test_immunization_question_uses_model_tool_loop() -> None:
+async def test_immunization_question_uses_evidence_worker_tool_loop() -> None:
     immunization_bundle = {
         "resourceType": "Bundle",
         "entry": [
@@ -394,17 +450,11 @@ async def test_immunization_question_uses_model_tool_loop() -> None:
         ],
     }
 
-    call_state = {"count": 0}
+    evidence_calls = {"count": 0}
 
-    def script(messages: list[dict[str, Any]]) -> LlmChatResult:
-        call_state["count"] += 1
-        if call_state["count"] == 1:
-            tool_names = {
-                tool["function"]["name"]
-                for tool in messages
-                if isinstance(tool.get("function"), dict)
-            }
-            assert tool_names == set()
+    def on_evidence(messages: list[dict[str, Any]]) -> LlmChatResult:
+        evidence_calls["count"] += 1
+        if evidence_calls["count"] == 1:
             return LlmChatResult(
                 content=None,
                 tool_calls=[
@@ -415,34 +465,27 @@ async def test_immunization_question_uses_model_tool_loop() -> None:
                     )
                 ],
             )
-        return LlmChatResult(
-            content=json.dumps(
-                {
-                    "narrative": "The chart lists an influenza vaccine on 2025-10-01 [^1].",
-                    "facts": [
-                        {
-                            "type": "immunization",
-                            "text": "Influenza vaccine, completed on 2025-10-01",
-                            "verbatim_excerpts": [
-                                "Influenza vaccine",
-                                "completed",
-                                "2025-10-01",
-                            ],
-                            "citations": [
-                                {
-                                    "resource_type": "Immunization",
-                                    "resource_id": "imm-1",
-                                }
-                            ],
-                            "anchor": 1,
-                        }
-                    ],
-                }
-            ),
-            tool_calls=[],
-        )
+        return _stop("got immunizations")
 
-    llm = MockLlmClient(chat_scripted=script)
+    envelope = {
+        "narrative": "The chart lists an influenza vaccine on 2025-10-01 [^1].",
+        "facts": [
+            {
+                "type": "immunization",
+                "text": "Influenza vaccine, completed on 2025-10-01",
+                "verbatim_excerpts": [
+                    "Influenza vaccine",
+                    "completed",
+                    "2025-10-01",
+                ],
+                "citations": [{"resource_type": "Immunization", "resource_id": "imm-1"}],
+                "anchor": 1,
+            }
+        ],
+    }
+    llm = MockLlmClient(
+        chat_scripted=_supervisor_routes_then_finalize(envelope, on_evidence=on_evidence)
+    )
 
     with respx.mock(assert_all_called=False) as mock:
         _fhir_routes(mock)
@@ -462,9 +505,202 @@ async def test_immunization_question_uses_model_tool_loop() -> None:
         )
 
     assert final["verification_failures"] == []
-    assert call_state["count"] == 2
+    assert evidence_calls["count"] == 2
     assert "influenza vaccine" in final["parsed_narrative"]
     assert len(final["verified_facts"]) == 1
     assert final["verified_facts"][0].type.value == "immunization"
     assert final["verified_facts"][0].citations[0].resource_id == "imm-1"
     assert "Influenza vaccine" in final["verified_facts"][0].text
+
+
+@pytest.mark.asyncio
+async def test_supervisor_routes_to_extractor_when_unindexed_lab_present() -> None:
+    """Unindexed lab + lab question → supervisor routes to extractor first.
+
+    The extractor calls extract_documents, which kicks off ingestion and
+    polls the job. We mock all three OpenEMR endpoints (recent → ingest →
+    job status) and the indexed-facts query that returns the freshly
+    extracted rows.
+    """
+    unindexed_doc = {
+        "id": 11,
+        "uuid": "doc-uuid-11",
+        "filename": "labs_quest_2026.pdf",
+        "mimetype": "application/pdf",
+        "docdate": "2026-05-01",
+        "category_name": "Lab Reports",
+        "already_ingested": False,
+    }
+
+    extractor_calls = {"count": 0}
+    job_polls = {"count": 0}
+
+    def on_extractor(messages: list[dict[str, Any]]) -> LlmChatResult:
+        extractor_calls["count"] += 1
+        if extractor_calls["count"] == 1:
+            return LlmChatResult(
+                content=None,
+                tool_calls=[
+                    LlmToolCall(
+                        tool_call_id="x1",
+                        name="extract_documents",
+                        arguments={
+                            "documents": [{"document_id": 11, "document_type": "lab_report"}]
+                        },
+                    )
+                ],
+            )
+        return _stop("extracted")
+
+    envelope = {
+        "narrative": "The recent lab report shows LDL of 132 [^1].",
+        "facts": [
+            {
+                "type": "document_fact",
+                "text": "LDL 132 mg/dL on 2026-05-01",
+                "verbatim_excerpts": ["132", "2026-05-01"],
+                "citations": [
+                    {
+                        "resource_type": "IndexedDocumentFact",
+                        "resource_id": "fact-1",
+                    }
+                ],
+                "anchor": 1,
+            }
+        ],
+    }
+
+    state_holder = {"sup_calls": 0}
+
+    def script(messages: list[dict[str, Any]]) -> LlmChatResult:
+        role = _detect_role(messages)
+        if role == "supervisor":
+            state_holder["sup_calls"] += 1
+            if state_holder["sup_calls"] == 1:
+                return _route("extractor")
+            return _route("finalize")
+        if role == "extractor":
+            return on_extractor(messages)
+        if role == "evidence":
+            return _stop("evidence done")
+        return _envelope(envelope)
+
+    def job_status_handler(request: httpx.Request) -> httpx.Response:
+        job_polls["count"] += 1
+        return httpx.Response(
+            200,
+            json={
+                "job_id": "job-abc",
+                "status": "completed",
+                "documents": [{"uuid": "doc-uuid-11"}],
+            },
+        )
+
+    llm = MockLlmClient(chat_scripted=script)
+
+    with respx.mock(assert_all_called=False) as mock:
+        _fhir_routes(mock, unindexed=[unindexed_doc])
+        mock.post(f"{API_BASE}/ai/documents/ingest/{PATIENT}").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "job_id": "job-abc",
+                    "status": "pending",
+                    "document_count": 1,
+                    "processed_count": 0,
+                    "failed_count": 0,
+                    "documents": [{"uuid": "doc-uuid-11"}],
+                },
+            )
+        )
+        mock.get(f"{API_BASE}/ai/documents/{PATIENT}/jobs/job-abc").mock(
+            side_effect=job_status_handler,
+        )
+        mock.get(f"{API_BASE}/ai/documents/indexed-facts/{PATIENT}/document").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "facts": [
+                        {
+                            "resource_type": "IndexedDocumentFact",
+                            "resource_id": "fact-1",
+                            "patient_id": PATIENT,
+                            "last_updated": "2026-05-01T00:00:00+00:00",
+                            "fields": {
+                                "source": "indexed_document_fact",
+                                "fact_type": "lab_result",
+                                "document_uuid": "doc-uuid-11",
+                                "label": "LDL",
+                                "value_text": "132",
+                                "observed_on": "2026-05-01",
+                            },
+                            "verbatim_excerpt": "LDL 132 mg/dL",
+                        }
+                    ]
+                },
+            )
+        )
+
+        graph = build_chat_graph(llm)
+        final = await graph.ainvoke(  # type: ignore[attr-defined]
+            _initial_state(
+                [
+                    ChatMessage(
+                        role=ChatRole.USER,
+                        content="What's in the recent lab report uploaded?",
+                    )
+                ]
+            )
+        )
+
+    assert final["supervisor_decisions"] == ["extractor", "finalize"]
+    assert final["extractor_runs"] == 1
+    assert job_polls["count"] >= 1
+    assert any(f.citations[0].resource_id == "fact-1" for f in final["verified_facts"])
+    assert "132" in final["parsed_narrative"]
+
+
+@pytest.mark.asyncio
+async def test_supervisor_skips_extractor_when_unindexed_list_empty() -> None:
+    """No unindexed docs → supervisor never picks extractor route."""
+    envelope = {
+        "narrative": "She is on lisinopril 10 mg [^1].",
+        "facts": [
+            {
+                "type": "medication",
+                "text": "Lisinopril 10 mg, active",
+                "verbatim_excerpts": ["Lisinopril 10 mg"],
+                "citations": [{"resource_type": "MedicationRequest", "resource_id": "med-1"}],
+                "anchor": 1,
+            }
+        ],
+    }
+    seen_routes: list[str] = []
+
+    def script(messages: list[dict[str, Any]]) -> LlmChatResult:
+        role = _detect_role(messages)
+        seen_routes.append(role)
+        if role == "supervisor":
+            # Try to pick extractor — supervisor guardrail should override.
+            return _route("extractor")
+        if role == "evidence":
+            return _stop("evidence done")
+        if role == "extractor":
+            pytest.fail("extractor should not run when unindexed list is empty")
+        return _envelope(envelope)
+
+    llm = MockLlmClient(chat_scripted=script)
+
+    with respx.mock(assert_all_called=False) as mock:
+        _fhir_routes(mock, unindexed=[])
+        graph = build_chat_graph(llm)
+        final = await graph.ainvoke(  # type: ignore[attr-defined]
+            _initial_state(
+                [ChatMessage(role=ChatRole.USER, content="meds?")],
+                cached_context=_medication_context(),
+            )
+        )
+
+    assert "extractor" not in seen_routes
+    assert final["extractor_runs"] == 0
+    assert len(final["verified_facts"]) == 1

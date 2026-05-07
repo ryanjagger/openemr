@@ -78,18 +78,6 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
             <section id="oe-ai-agent-chat-panel"
                 data-pid="<?php echo attr((string) $pid); ?>"
                 data-csrf="<?php echo attr($apiCsrfToken); ?>">
-                <div class="border rounded p-3 mb-3 bg-light" id="oe-ai-agent-doc-ingestion">
-                    <div class="mb-2">
-                        <strong><?php echo xlt('Recent Documents'); ?></strong>
-                    </div>
-                    <div id="oe-ai-agent-doc-status" class="small text-muted mb-2">
-                        <?php echo xlt('Loading recent PDF/PNG documents...'); ?>
-                    </div>
-                    <div id="oe-ai-agent-doc-list" class="mb-2"></div>
-                    <button type="button" class="btn btn-sm btn-primary d-none" id="oe-ai-agent-doc-ingest">
-                        <?php echo xlt('Ingest selected documents'); ?>
-                    </button>
-                </div>
                 <div id="oe-ai-agent-chat-log" class="mb-3">
                     <div class="text-muted small">
                         <?php echo xlt("Ask a question grounded in this patient's chart and indexed documents. The agent summarizes evidence, not treatment orders."); ?>
@@ -114,7 +102,7 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
     <?php $oemr_ui->oeBelowContainerDiv(); ?>
 </div>
 
-<script src="<?php echo attr($publicPath); ?>/js/chat_panel.js?v=0.6.3"></script>
+<script src="<?php echo attr($publicPath); ?>/js/chat_panel.js?v=0.6.4"></script>
 
 </body>
 </html>

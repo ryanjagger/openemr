@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 
 from oe_ai_agent.llm.client import LlmToolCall
 from oe_ai_agent.schemas.tool_results import ToolError, TypedRow
@@ -30,6 +30,10 @@ from oe_ai_agent.tools.orders import get_orders
 from oe_ai_agent.tools.procedures import get_procedures
 from oe_ai_agent.tools.recent_encounters import get_recent_encounters
 from oe_ai_agent.tools.recent_notes import get_recent_notes
+from oe_ai_agent.tools.unindexed_documents import (
+    extract_documents,
+    list_unindexed_documents,
+)
 
 ToolHandler = Callable[[FhirClient, str, dict[str, object]], Awaitable[list[TypedRow]]]
 DEFAULT_LIMIT = 50
@@ -311,6 +315,78 @@ async def _handle_search_clinical_guidelines(
         topic_tag=_optional_str(arguments.get("topic_tag")),
         limit=_optional_limit(arguments.get("limit")),
     )
+
+
+async def _handle_list_unindexed_documents(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    _reject_arguments(arguments)
+    docs = await list_unindexed_documents(client, patient_uuid)
+    rows: list[TypedRow] = []
+    moment = datetime.now(tz=UTC)
+    for doc in docs:
+        rows.append(
+            TypedRow(
+                resource_type="UnindexedDocument",
+                resource_id=doc.document_uuid,
+                patient_id=patient_uuid,
+                last_updated=moment,
+                fields={
+                    "source": "unindexed_document_manifest",
+                    "document_id": doc.document_id,
+                    "document_uuid": doc.document_uuid,
+                    "filename": doc.filename,
+                    "mimetype": doc.mimetype,
+                    "docdate": doc.docdate,
+                    "category_name": doc.category_name,
+                    "inferred_document_type": doc.inferred_document_type,
+                },
+            )
+        )
+    return rows
+
+
+async def _handle_extract_documents(
+    client: FhirClient,
+    patient_uuid: str,
+    arguments: dict[str, object],
+) -> list[TypedRow]:
+    selections = _parse_extract_selections(arguments.get("documents"))
+    if not selections:
+        raise ValueError("documents must be a non-empty list")
+    rows, _ = await extract_documents(
+        client,
+        patient_uuid,
+        selections=selections,
+    )
+    return rows
+
+
+def _parse_extract_selections(value: object) -> list[dict[str, str | int]]:
+    if not isinstance(value, list):
+        return []
+    selections: list[dict[str, str | int]] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            continue
+        document_id_raw = raw.get("document_id")
+        document_type_raw = raw.get("document_type")
+        if not isinstance(document_type_raw, str) or not document_type_raw.strip():
+            continue
+        if document_type_raw not in {"lab_report", "intake_form"}:
+            continue
+        if isinstance(document_id_raw, int):
+            document_id = document_id_raw
+        elif isinstance(document_id_raw, str) and document_id_raw.isdigit():
+            document_id = int(document_id_raw)
+        else:
+            continue
+        selections.append(
+            {"document_id": document_id, "document_type": document_type_raw.strip()}
+        )
+    return selections
 
 
 def _reject_arguments(arguments: dict[str, object]) -> None:
@@ -772,11 +848,94 @@ CHAT_TOOL_REGISTRY: dict[str, ChatToolSpec] = {
         },
         handler=_handle_care_plan_goals,
     ),
+    "list_unindexed_documents": ChatToolSpec(
+        name="list_unindexed_documents",
+        description=(
+            "List documents recently uploaded to the patient chart that have "
+            "not yet been indexed/extracted. Returns lightweight manifest rows "
+            "(filename, mimetype, docdate, inferred_document_type) so the "
+            "extractor can decide which documents are worth extracting."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        handler=_handle_list_unindexed_documents,
+    ),
+    "extract_documents": ChatToolSpec(
+        name="extract_documents",
+        description=(
+            "Run extraction on one or more uploaded documents and block until "
+            "the ingestion job completes. Returns IndexedDocumentFact rows "
+            "for the freshly extracted facts. document_type must be one of "
+            "'lab_report' or 'intake_form'. Pick this only after listing "
+            "unindexed documents and confirming the document is relevant to "
+            "the user's question."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "documents": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "document_id": {
+                                "type": "integer",
+                                "description": (
+                                    "OpenEMR documents.id (the integer 'id' field "
+                                    "from list_unindexed_documents)."
+                                ),
+                            },
+                            "document_type": {
+                                "type": "string",
+                                "enum": ["lab_report", "intake_form"],
+                            },
+                        },
+                        "required": ["document_id", "document_type"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["documents"],
+            "additionalProperties": False,
+        },
+        handler=_handle_extract_documents,
+    ),
 }
+
+
+EXTRACTOR_TOOL_NAMES: frozenset[str] = frozenset(
+    {"list_unindexed_documents", "extract_documents"}
+)
+"""Tools the extractor worker is allowed to call."""
+
+EVIDENCE_TOOL_NAMES: frozenset[str] = frozenset(
+    name for name in CHAT_TOOL_REGISTRY if name not in EXTRACTOR_TOOL_NAMES
+)
+"""Tools the evidence_retriever worker is allowed to call."""
 
 
 def chat_tools_schema() -> list[dict[str, object]]:
     return [tool.schema() for tool in CHAT_TOOL_REGISTRY.values()]
+
+
+def extractor_tools_schema() -> list[dict[str, object]]:
+    return [
+        CHAT_TOOL_REGISTRY[name].schema()
+        for name in EXTRACTOR_TOOL_NAMES
+        if name in CHAT_TOOL_REGISTRY
+    ]
+
+
+def evidence_tools_schema() -> list[dict[str, object]]:
+    return [
+        CHAT_TOOL_REGISTRY[name].schema()
+        for name in EVIDENCE_TOOL_NAMES
+        if name in CHAT_TOOL_REGISTRY
+    ]
 
 
 async def execute_chat_tool(

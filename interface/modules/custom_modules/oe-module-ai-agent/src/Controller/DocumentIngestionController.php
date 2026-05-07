@@ -51,11 +51,14 @@ final class DocumentIngestionController
         if ($patientId === 0) {
             return $this->error('patient_not_found', 404);
         }
-        if (!$this->patientAccessValidator->canRead($pid)) {
+        // Pass the resolved integer pid: PatientAccessValidator::canRead expects
+        // a numeric string (ctype_digit), but $pid here can be either a numeric
+        // pid (browser flow) or a UUID (agent bearer-token flow).
+        if (!$this->patientAccessValidator->canRead((string) $patientId)) {
             return $this->error('forbidden', 403);
         }
 
-        $username = $this->username();
+        $username = $this->username($request);
         if ($username === '') {
             return $this->error('no_authenticated_user', 401);
         }
@@ -77,12 +80,12 @@ final class DocumentIngestionController
         if ($patientId === 0) {
             return $this->error('patient_not_found', 404);
         }
-        if (!$this->patientAccessValidator->canRead($pid)) {
+        if (!$this->patientAccessValidator->canRead((string) $patientId)) {
             return $this->error('forbidden', 403);
         }
 
-        $userId = $this->userId();
-        $username = $this->username();
+        $userId = $this->userId($request);
+        $username = $this->username($request);
         if ($userId === 0 || $username === '') {
             return $this->error('no_authenticated_user', 401);
         }
@@ -114,7 +117,7 @@ final class DocumentIngestionController
         if ($patientId === 0) {
             return $this->error('patient_not_found', 404);
         }
-        if (!$this->patientAccessValidator->canRead($pid)) {
+        if (!$this->patientAccessValidator->canRead((string) $patientId)) {
             return $this->error('forbidden', 403);
         }
 
@@ -287,24 +290,50 @@ final class DocumentIngestionController
         return $default;
     }
 
-    private function userId(): int
+    /**
+     * Resolve the authenticated user's integer id.
+     *
+     * Source-of-truth precedence:
+     *   1. ``HttpRestRequest::getRequestUser()['id']`` — explicitly populated by
+     *      every REST authorization strategy (bearer-token, skip-auth, browser
+     *      session-cookie). This is the contract REST controllers should rely on.
+     *   2. ``$_SESSION['authUserID']`` fallback — preserves the historical
+     *      session-cookie path for any non-REST entrypoint that might call this
+     *      controller directly without going through the dispatch pipeline.
+     */
+    private function userId(HttpRestRequest $request): int
     {
-        $value = SessionWrapperFactory::getInstance()->getActiveSession()->get('authUserID');
-        if (is_int($value)) {
-            return $value;
+        $requestUser = $request->getRequestUser();
+        $requestUserId = $requestUser['id'] ?? null;
+        if (is_int($requestUserId)) {
+            return $requestUserId;
         }
-        if (is_string($value) && ctype_digit($value)) {
-            return (int) $value;
+        if (is_string($requestUserId) && ctype_digit($requestUserId)) {
+            return (int) $requestUserId;
+        }
+
+        $sessionValue = SessionWrapperFactory::getInstance()->getActiveSession()->get('authUserID');
+        if (is_int($sessionValue)) {
+            return $sessionValue;
+        }
+        if (is_string($sessionValue) && ctype_digit($sessionValue)) {
+            return (int) $sessionValue;
         }
 
         return 0;
     }
 
-    private function username(): string
+    private function username(HttpRestRequest $request): string
     {
-        $value = SessionWrapperFactory::getInstance()->getActiveSession()->get('authUser');
+        $requestUser = $request->getRequestUser();
+        $requestUsername = $requestUser['username'] ?? null;
+        if (is_string($requestUsername) && $requestUsername !== '') {
+            return $requestUsername;
+        }
 
-        return is_string($value) ? $value : '';
+        $sessionValue = SessionWrapperFactory::getInstance()->getActiveSession()->get('authUser');
+
+        return is_string($sessionValue) ? $sessionValue : '';
     }
 
     /**

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from oe_ai_agent.schemas.brief import VerificationFailure
 from oe_ai_agent.schemas.chat import ChatFact, ChatMessage
 from oe_ai_agent.schemas.tool_results import ToolError, TypedRow
+from oe_ai_agent.schemas.unindexed_document import UnindexedDocument
 
 
 class ChatState(BaseModel):
@@ -21,6 +22,13 @@ class ChatState(BaseModel):
 
     cached_context: list[TypedRow] = Field(default_factory=list)
     fetch_errors: list[ToolError] = Field(default_factory=list)
+
+    unindexed_documents: list[UnindexedDocument] = Field(default_factory=list)
+
+    supervisor_decisions: list[str] = Field(default_factory=list)
+    supervisor_turns_remaining: int = 6
+    extractor_runs: int = 0
+    evidence_runs: int = 0
 
     raw_envelope: str | None = None
     parsed_narrative: str = ""
