@@ -13,6 +13,7 @@
     var pid = panel.getAttribute('data-pid');
     var csrf = panel.getAttribute('data-csrf');
     var endpoint = '/apis/default/api/ai/chat/' + encodeURIComponent(pid);
+    var STATUS_POLL_INTERVAL_MS = 1000;
 
     // In-memory conversation state — ephemeral by design (per ARCH chat
     // addendum). A reload throws this away; the server's conversation
@@ -20,7 +21,12 @@
     var state = {
         conversationId: null,
         messages: [],
-        pending: false
+        pending: false,
+        pendingIndicator: null,
+        statusPollTimer: null,
+        statusPollInFlight: false,
+        statusPollGeneration: 0,
+        pendingRequestId: null
     };
 
     // Maps controller error codes to human-readable copy. Codes here must
@@ -31,6 +37,8 @@
         patient_not_found: 'Patient record not found.',
         token_mint_failed: 'Could not authorize the AI service for this chart.',
         sidecar_unreachable: 'The AI service is unreachable.',
+        model_overloaded: 'The AI model provider is temporarily overloaded. Please try again in a moment.',
+        empty_response: 'The AI service did not produce an answer. Please try again or ask a more specific question.',
         empty_messages: 'Type a question first.',
         http_error: 'The AI service returned an unexpected response.',
         network: 'Could not reach the AI service.'
@@ -144,6 +152,149 @@
         wrap.appendChild(alert);
         log.appendChild(wrap);
         log.scrollTop = log.scrollHeight;
+    }
+
+    function startPendingIndicator() {
+        stopPendingIndicator(false);
+        state.statusPollGeneration += 1;
+
+        var wrap = document.createElement('div');
+        wrap.className = 'mb-2 oe-ai-agent-pending-row';
+        wrap.setAttribute('role', 'status');
+        wrap.setAttribute('aria-live', 'polite');
+
+        var bubble = document.createElement('div');
+        bubble.className = 'd-inline-block px-3 py-2 rounded border bg-light oe-ai-agent-pending-bubble';
+        bubble.style.maxWidth = '95%';
+
+        var line = document.createElement('div');
+        line.className = 'd-flex align-items-center';
+
+        var spinner = document.createElement('span');
+        spinner.className = 'spinner-border spinner-border-sm text-info mr-2';
+        spinner.setAttribute('aria-hidden', 'true');
+        line.appendChild(spinner);
+
+        var status = document.createElement('span');
+        status.className = 'oe-ai-agent-pending-status';
+        status.textContent = 'AI response in progress…';
+        line.appendChild(status);
+
+        var meta = document.createElement('div');
+        meta.className = 'small text-muted mt-1 oe-ai-agent-pending-meta';
+
+        bubble.appendChild(line);
+        bubble.appendChild(meta);
+        wrap.appendChild(bubble);
+        log.appendChild(wrap);
+
+        state.pendingIndicator = {
+            wrap: wrap,
+            status: status,
+            meta: meta
+        };
+        updatePendingStatus('AI response in progress…', 'Waiting for the AI service.');
+        pollChatStatus();
+        state.statusPollTimer = setInterval(pollChatStatus, STATUS_POLL_INTERVAL_MS);
+        log.scrollTop = log.scrollHeight;
+    }
+
+    function stopPendingIndicator(clearRequestId) {
+        state.statusPollGeneration += 1;
+        state.statusPollInFlight = false;
+        if (state.statusPollTimer !== null) {
+            clearInterval(state.statusPollTimer);
+            state.statusPollTimer = null;
+        }
+        if (state.pendingIndicator && state.pendingIndicator.wrap.parentNode) {
+            state.pendingIndicator.wrap.parentNode.removeChild(state.pendingIndicator.wrap);
+        }
+        state.pendingIndicator = null;
+        if (clearRequestId !== false) {
+            state.pendingRequestId = null;
+        }
+    }
+
+    function updatePendingStatus(text, detail) {
+        if (!state.pendingIndicator) {
+            return;
+        }
+        state.pendingIndicator.status.textContent = text;
+        state.pendingIndicator.meta.textContent = detail || '';
+        log.scrollTop = log.scrollHeight;
+    }
+
+    function pollChatStatus() {
+        if (!state.pending || !state.pendingRequestId || state.statusPollInFlight) {
+            return;
+        }
+        state.statusPollInFlight = true;
+        var generation = state.statusPollGeneration;
+        fetch(statusEndpoint(state.pendingRequestId), {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: {
+                'APICSRFTOKEN': csrf,
+                'Accept': 'application/json'
+            }
+        }).then(function (response) {
+            return response.json().then(function (data) {
+                return { ok: response.ok, data: data };
+            }, function () {
+                return { ok: response.ok, data: null };
+            });
+        }).then(function (result) {
+            if (
+                generation !== state.statusPollGeneration
+                || !state.pending
+                || !result.ok
+                || !result.data
+                || typeof result.data !== 'object'
+            ) {
+                return;
+            }
+            updatePendingFromStatus(result.data);
+        }).catch(function () {
+            // Chat failure handling belongs to the primary request. A status
+            // poll failure should not replace the assistant's pending state.
+        }).then(function () {
+            if (generation === state.statusPollGeneration) {
+                state.statusPollInFlight = false;
+            }
+        });
+    }
+
+    function statusEndpoint(requestId) {
+        return '/apis/default/api/ai/chat/' + encodeURIComponent(pid) +
+            '/status/' + encodeURIComponent(requestId);
+    }
+
+    function updatePendingFromStatus(status) {
+        if (!status || typeof status !== 'object' || status.state === 'unknown') {
+            return;
+        }
+        var stage = typeof status.stage === 'string' && status.stage
+            ? status.stage
+            : 'AI response in progress…';
+        var detail = typeof status.detail === 'string' ? status.detail : '';
+        if (status.worker && !detail) {
+            detail = 'Worker: ' + status.worker;
+        }
+        updatePendingStatus(stage, detail);
+    }
+
+    function newRequestId() {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+            return window.crypto.randomUUID();
+        }
+
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+            var random = window.crypto && typeof window.crypto.getRandomValues === 'function'
+                ? window.crypto.getRandomValues(new Uint8Array(1))[0] & 15
+                : Math.floor(Math.random() * 16);
+            var value = c === 'x' ? random : (random & 3) | 8;
+            return value.toString(16);
+        });
     }
 
     // Render narrative with [^N] anchors as clickable pills that highlight
@@ -270,9 +421,12 @@
         state.messages.push({ role: 'user', content: trimmed });
         appendUserBubble(trimmed);
         input.value = '';
+        state.pendingRequestId = newRequestId();
         setPending(true);
+        startPendingIndicator();
 
         var payload = {
+            request_id: state.pendingRequestId,
             conversation_id: state.conversationId,
             messages: state.messages
         };
@@ -294,6 +448,7 @@
             });
         }).then(function (result) {
             var data = result.data;
+            stopPendingIndicator();
             // Treat non-JSON or non-object responses as http_error so we
             // don't TypeError our way into a misleading "network" message.
             if (!result.ok || !data || typeof data !== 'object') {
@@ -308,6 +463,11 @@
                 state.messages.pop();
                 return;
             }
+            if (isBlankAssistantResponse(data)) {
+                appendErrorBubble('empty_response', data.request_id);
+                state.messages.pop();
+                return;
+            }
             if (data.conversation_id) {
                 state.conversationId = data.conversation_id;
             }
@@ -317,12 +477,19 @@
             });
             appendAssistantBubble(data.narrative, data.facts, data.verification_failures, data.meta);
         }).catch(function () {
+            stopPendingIndicator();
             appendErrorBubble('network', null);
             state.messages.pop();
         }).then(function () {
             setPending(false);
             input.focus();
         });
+    }
+
+    function isBlankAssistantResponse(data) {
+        return !((typeof data.narrative === 'string' && data.narrative.trim() !== '') ||
+            (Array.isArray(data.facts) && data.facts.length > 0) ||
+            (Array.isArray(data.verification_failures) && data.verification_failures.length > 0));
     }
 
     form.addEventListener('submit', function (ev) {

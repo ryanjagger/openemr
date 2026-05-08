@@ -28,6 +28,7 @@ from oe_ai_agent.llm.prompts_supervisor import (
     supervisor_response_format,
 )
 from oe_ai_agent.observability import current_trace, get_logger, step
+from oe_ai_agent.status import update_current_chat_status
 
 logger = get_logger(__name__)
 
@@ -40,6 +41,7 @@ SupervisorNode = Callable[[ChatState], Awaitable[Command[str]]]
 def make_supervisor_node(llm: LlmClient) -> SupervisorNode:
     async def supervisor_node(state: ChatState) -> Command[str]:
         async with step("supervisor", model=llm.model_id) as record:
+            update_current_chat_status(stage="Supervisor choosing next worker", worker="supervisor")
             allowed_routes = _allowed_routes(state)
             forced = _forced_route(state, allowed_routes)
             if forced is not None:
@@ -50,6 +52,12 @@ def make_supervisor_node(llm: LlmClient) -> SupervisorNode:
                         "forced": True,
                         "allowed_routes": list(allowed_routes),
                     }
+                )
+                update_current_chat_status(
+                    stage=_route_stage(forced),
+                    detail="Supervisor guardrail selected the next step",
+                    worker="supervisor",
+                    route=forced,
                 )
                 return _command_for_route(state, forced)
 
@@ -82,6 +90,12 @@ def make_supervisor_node(llm: LlmClient) -> SupervisorNode:
                     "completion_tokens": result.usage.completion_tokens,
                     "latency_ms": result.usage.latency_ms,
                 }
+            )
+            update_current_chat_status(
+                stage=_route_stage(chosen),
+                detail=reason[:200] if reason else None,
+                worker="supervisor",
+                route=chosen,
             )
             return _command_for_route(state, chosen)
 
@@ -123,6 +137,14 @@ def _parse_route(content: str | None, allowed_routes: tuple[str, ...]) -> tuple[
     else:
         reason_text = reason if isinstance(reason, str) and reason else ""
     return next_value, reason_text
+
+
+def _route_stage(route: str) -> str:
+    return {
+        "extractor": "Supervisor starting extractor worker",
+        "evidence_retriever": "Supervisor starting evidence retriever",
+        "finalize": "Supervisor finalizing response",
+    }.get(route, f"Supervisor selected {route}")
 
 
 def _command_for_route(state: ChatState, route: str) -> Command[str]:

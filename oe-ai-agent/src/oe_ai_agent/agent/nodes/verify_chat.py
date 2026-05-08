@@ -20,6 +20,7 @@ from oe_ai_agent.observability import step, update_langfuse_observation
 from oe_ai_agent.schemas.brief import VerificationFailure
 from oe_ai_agent.schemas.chat import ChatFact, ChatFactType
 from oe_ai_agent.schemas.tool_results import TypedRow
+from oe_ai_agent.status import update_current_chat_status
 from oe_ai_agent.verifier.constraints import (
     ADVISORY_DENYLIST,
     CHAT_ALLOWED_TABLES_FOR_TYPE,
@@ -42,6 +43,9 @@ _FALLBACK_NARRATIVE = (
 _GUIDELINE_FALLBACK_NARRATIVE = (
     "I found guideline evidence in the verified source cards below."
 )
+_EMPTY_ANSWER_FALLBACK_NARRATIVE = (
+    "I couldn't find enough chart evidence to answer that question."
+)
 
 
 def make_verify_chat_node(
@@ -51,6 +55,7 @@ def make_verify_chat_node(
 
     async def verify_chat_node(state: ChatState) -> dict[str, object]:
         async with step("verify_chat") as record:
+            update_current_chat_status(stage="Verifying response grounding")
             verified_facts, failures = _verify_chat_facts(
                 state.parsed_facts,
                 state.cached_context,
@@ -67,6 +72,15 @@ def make_verify_chat_node(
                     "failure_count": len(failures),
                     "narrative_grounded": narrative_failure is None,
                 }
+            )
+            update_current_chat_status(
+                stage="Verification complete",
+                detail=f"{len(verified_facts)} facts verified",
+                attrs={
+                    "verified_count": len(verified_facts),
+                    "failure_count": len(failures),
+                    "narrative_grounded": narrative_failure is None,
+                },
             )
             if narrative_failure is not None:
                 if _only_guideline_facts(verified_facts):
@@ -110,6 +124,34 @@ def make_verify_chat_node(
                     "verified_facts": verified_facts,
                     "verification_failures": failures,
                     "parsed_narrative": _FALLBACK_NARRATIVE,
+                }
+
+            if not state.parsed_narrative.strip() and not verified_facts:
+                failure = VerificationFailure(
+                    rule="empty_answer",
+                    detail="model returned no narrative and no verified facts",
+                )
+                failures.append(failure)
+                record.attrs["empty_answer"] = True
+                record.attrs["failure_count"] = len(failures)
+                update_current_chat_status(
+                    stage="No grounded answer produced",
+                    detail=_EMPTY_ANSWER_FALLBACK_NARRATIVE,
+                    attrs={"failure_count": len(failures)},
+                )
+                update_langfuse_observation(
+                    output={
+                        "verified_facts": [],
+                        "failures": [
+                            failure.model_dump(mode="json") for failure in failures
+                        ],
+                        "narrative": _EMPTY_ANSWER_FALLBACK_NARRATIVE,
+                    }
+                )
+                return {
+                    "verified_facts": [],
+                    "verification_failures": failures,
+                    "parsed_narrative": _EMPTY_ANSWER_FALLBACK_NARRATIVE,
                 }
 
             update_langfuse_observation(

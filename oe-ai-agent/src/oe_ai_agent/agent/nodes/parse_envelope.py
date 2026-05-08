@@ -9,10 +9,12 @@ from pydantic import ValidationError
 from oe_ai_agent.agent.chat_state import ChatState
 from oe_ai_agent.observability import step
 from oe_ai_agent.schemas.chat import ChatFact
+from oe_ai_agent.status import update_current_chat_status
 
 
 async def parse_envelope_node(state: ChatState) -> dict[str, object]:
     async with step("parse_envelope") as record:
+        update_current_chat_status(stage="Parsing response envelope")
         if not state.raw_envelope:
             record.attrs["parse_error"] = "raw_envelope empty"
             return {
@@ -62,6 +64,11 @@ async def parse_envelope_node(state: ChatState) -> dict[str, object]:
 
         record.attrs.update(
             {"parsed_count": len(parsed), "rejected_count": rejected}
+        )
+        update_current_chat_status(
+            stage="Response envelope parsed",
+            detail=f"{len(parsed)} facts parsed",
+            attrs={"parsed_count": len(parsed), "rejected_count": rejected},
         )
         return {
             "parsed_narrative": narrative,

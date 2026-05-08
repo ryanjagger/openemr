@@ -67,6 +67,13 @@ final class Bootstrap
             },
         );
         $event->addToRouteMap(
+            'GET /api/ai/chat/:pid/status/:requestId',
+            function (string $pid, string $requestId, HttpRestRequest $request): array {
+                unset($request);
+                return ChatController::default()->status($pid, $requestId);
+            },
+        );
+        $event->addToRouteMap(
             'GET /api/ai/documents/recent/:pid',
             function (string $pid, HttpRestRequest $request): JsonResponse {
                 return DocumentIngestionController::default()->recent($pid, $request);

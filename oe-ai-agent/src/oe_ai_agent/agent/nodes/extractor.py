@@ -16,6 +16,7 @@ from oe_ai_agent.agent.nodes._tool_loop import merge_rows, run_tool_loop
 from oe_ai_agent.llm.client import LlmClient
 from oe_ai_agent.llm.prompts_supervisor import build_extractor_messages
 from oe_ai_agent.observability import step
+from oe_ai_agent.status import update_current_chat_status
 from oe_ai_agent.tools import FhirClient
 from oe_ai_agent.tools.chat_registry import (
     EXTRACTION_PENDING_SENTINEL,
@@ -35,6 +36,11 @@ def make_extractor_node(
 ) -> ExtractorNode:
     async def extractor_node(state: ChatState) -> Command[str]:
         async with step("extractor", model=llm.model_id) as outer:
+            update_current_chat_status(
+                stage="Extractor worker running",
+                detail="Reviewing unindexed uploaded documents",
+                worker="extractor",
+            )
             last_user_message = _last_user_message(state) or ""
             async with FhirClient(
                 base_url=state.fhir_base_url,
@@ -70,6 +76,20 @@ def make_extractor_node(
                     "error_count": len(errors),
                     "extraction_pending": extraction_pending,
                 }
+            )
+            update_current_chat_status(
+                stage="Extractor worker finished",
+                detail=(
+                    "Extraction job is still running in the background"
+                    if extraction_pending
+                    else f"Extractor added {len(rows)} rows"
+                ),
+                worker="extractor",
+                attrs={
+                    "new_row_count": len(rows),
+                    "error_count": len(errors),
+                    "extraction_pending": extraction_pending,
+                },
             )
 
         merged_context = merge_rows(state.cached_context, rows)

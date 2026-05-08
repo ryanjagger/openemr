@@ -16,6 +16,7 @@ import httpx
 
 from oe_ai_agent.agent.chat_state import ChatState
 from oe_ai_agent.observability import get_logger, step
+from oe_ai_agent.status import update_current_chat_status
 from oe_ai_agent.tools.fhir_client import FhirClient, FhirError
 from oe_ai_agent.tools.unindexed_documents import list_unindexed_documents
 
@@ -24,6 +25,7 @@ logger = get_logger(__name__)
 
 async def ensure_chat_context_node(state: ChatState) -> dict[str, object]:
     async with step("ensure_chat_context") as record:
+        update_current_chat_status(stage="Checking uploaded document context")
         unindexed = state.unindexed_documents
         if not unindexed:
             try:
@@ -49,5 +51,10 @@ async def ensure_chat_context_node(state: ChatState) -> dict[str, object]:
                 "eager_prefetch": False,
                 "unindexed_count": len(unindexed),
             }
+        )
+        update_current_chat_status(
+            stage="Document context checked",
+            detail=f"{len(unindexed)} unindexed documents available",
+            attrs={"unindexed_count": len(unindexed)},
         )
     return {"unindexed_documents": unindexed}

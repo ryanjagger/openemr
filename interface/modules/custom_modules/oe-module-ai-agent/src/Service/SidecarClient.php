@@ -16,6 +16,7 @@ use OpenEMR\Modules\AiAgent\DTO\BriefRequest;
 use OpenEMR\Modules\AiAgent\DTO\BriefResponse;
 use OpenEMR\Modules\AiAgent\DTO\ChatRequest;
 use OpenEMR\Modules\AiAgent\DTO\ChatTurnResponse;
+use OpenEMR\Modules\AiAgent\Exception\SidecarRequestException;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use RuntimeException;
@@ -85,6 +86,18 @@ final class SidecarClient
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    public function fetchChatStatus(string $requestId): array
+    {
+        return $this->getJson(
+            '/v1/chat/status/' . rawurlencode($requestId),
+            $requestId,
+            3.0,
+        );
+    }
+
+    /**
      * @param array<string, mixed> $request
      *
      * @return array<string, mixed>
@@ -129,19 +142,21 @@ final class SidecarClient
             $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
             if ($status !== 200) {
                 $raw = $response->getContent(throw: false);
+                $errorCode = self::errorCodeFromBody($raw);
                 $errorDetail = self::errorDetailFromBody($raw);
                 $this->logger->warning('sidecar.request.http_error', [
                     'path' => $path,
                     'request_id' => $requestId,
                     'status' => $status,
                     'latency_ms' => $latencyMs,
+                    'error_code' => $errorCode,
                     'body_preview' => substr($raw, 0, 400),
                 ]);
                 $message = "Sidecar returned HTTP {$status}";
                 if ($errorDetail !== null) {
                     $message .= ": {$errorDetail}";
                 }
-                throw new RuntimeException($message);
+                throw new SidecarRequestException($status, $errorCode, $errorDetail, $message);
             }
             /** @var array<string, mixed> $decoded */
             $decoded = json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR);
@@ -151,6 +166,63 @@ final class SidecarClient
                 'status' => $status,
                 'latency_ms' => $latencyMs,
             ]);
+
+            return $decoded;
+        } catch (TransportExceptionInterface $e) {
+            $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
+            $this->logger->error('sidecar.request.transport_error', [
+                'path' => $path,
+                'request_id' => $requestId,
+                'latency_ms' => $latencyMs,
+                'error' => $e->getMessage(),
+            ]);
+            throw new RuntimeException('Sidecar transport error', previous: $e);
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function getJson(string $path, string $requestId, float $timeoutSeconds): array
+    {
+        $startedAt = microtime(true);
+        $this->logger->debug('sidecar.request.start', [
+            'path' => $path,
+            'request_id' => $requestId,
+        ]);
+        try {
+            $response = $this->httpClient->request(
+                method: 'GET',
+                url: $this->baseUrl . $path,
+                options: [
+                    'headers' => [
+                        'X-Internal-Auth' => $this->internalAuthSecret,
+                    ],
+                    'timeout' => $timeoutSeconds,
+                ],
+            );
+            $status = $response->getStatusCode();
+            $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
+            if ($status !== 200) {
+                $raw = $response->getContent(throw: false);
+                $errorCode = self::errorCodeFromBody($raw);
+                $errorDetail = self::errorDetailFromBody($raw);
+                $this->logger->warning('sidecar.request.http_error', [
+                    'path' => $path,
+                    'request_id' => $requestId,
+                    'status' => $status,
+                    'latency_ms' => $latencyMs,
+                    'error_code' => $errorCode,
+                    'body_preview' => substr($raw, 0, 400),
+                ]);
+                $message = "Sidecar returned HTTP {$status}";
+                if ($errorDetail !== null) {
+                    $message .= ": {$errorDetail}";
+                }
+                throw new SidecarRequestException($status, $errorCode, $errorDetail, $message);
+            }
+            /** @var array<string, mixed> $decoded */
+            $decoded = json_decode($response->getContent(), true, flags: JSON_THROW_ON_ERROR);
 
             return $decoded;
         } catch (TransportExceptionInterface $e) {
@@ -177,12 +249,8 @@ final class SidecarClient
 
     private static function errorDetailFromBody(string $body): ?string
     {
-        try {
-            $decoded = json_decode($body, true, flags: JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            return null;
-        }
-        if (!is_array($decoded)) {
+        $decoded = self::decodeErrorBody($body);
+        if ($decoded === null) {
             return null;
         }
 
@@ -195,12 +263,44 @@ final class SidecarClient
         }
 
         $parts = [];
-        foreach (['error', 'request_id'] as $key) {
+        foreach (['message', 'error', 'request_id'] as $key) {
             if (is_string($detail[$key] ?? null) && $detail[$key] !== '') {
                 $parts[] = $key . '=' . $detail[$key];
             }
         }
 
         return $parts === [] ? null : substr(implode(' ', $parts), 0, 240);
+    }
+
+    private static function errorCodeFromBody(string $body): ?string
+    {
+        $decoded = self::decodeErrorBody($body);
+        if ($decoded === null) {
+            return null;
+        }
+
+        $detail = $decoded['detail'] ?? null;
+        if (is_array($detail) && is_string($detail['error'] ?? null) && $detail['error'] !== '') {
+            return substr($detail['error'], 0, 80);
+        }
+        if (is_string($decoded['error'] ?? null) && $decoded['error'] !== '') {
+            return substr($decoded['error'], 0, 80);
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private static function decodeErrorBody(string $body): ?array
+    {
+        try {
+            $decoded = json_decode($body, true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return null;
+        }
+
+        return is_array($decoded) ? $decoded : null;
     }
 }

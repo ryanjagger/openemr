@@ -102,7 +102,7 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
     <?php $oemr_ui->oeBelowContainerDiv(); ?>
 </div>
 
-<script src="<?php echo attr($publicPath); ?>/js/chat_panel.js?v=0.6.4"></script>
+<script src="<?php echo attr($publicPath); ?>/js/chat_panel.js?v=0.6.9"></script>
 
 </body>
 </html>

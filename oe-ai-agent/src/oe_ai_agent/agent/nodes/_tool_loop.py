@@ -22,6 +22,7 @@ from oe_ai_agent.observability import (
     update_langfuse_observation,
 )
 from oe_ai_agent.schemas.tool_results import ToolError, TypedRow
+from oe_ai_agent.status import update_current_chat_status
 from oe_ai_agent.tools import FhirClient
 from oe_ai_agent.tools.chat_registry import execute_chat_tool
 
@@ -56,6 +57,11 @@ async def run_tool_loop(
 
     for _ in range(max_iterations):
         iterations += 1
+        update_current_chat_status(
+            stage=f"{_label_for_worker(loop_label)} planning",
+            detail=f"Iteration {iterations}",
+            worker=loop_label,
+        )
         async with step(f"{loop_label}.iteration", iteration=iterations) as iter_record:
             result = await llm.chat_with_tools(
                 messages,
@@ -81,6 +87,12 @@ async def run_tool_loop(
         messages.append(_assistant_message_with_tool_calls(result))
         for call in result.tool_calls:
             tool_call_count += 1
+            update_current_chat_status(
+                stage=f"{_label_for_worker(loop_label)} running tool",
+                detail=_tool_status_detail(call.name),
+                worker=loop_label,
+                tool_name=call.name,
+            )
             if call.name not in allowed_tool_names:
                 error_message = (
                     f"tool {call.name!r} not allowed for {loop_label}; "
@@ -105,6 +117,12 @@ async def run_tool_loop(
             )
             if error is not None:
                 new_errors.append(error)
+                update_current_chat_status(
+                    stage=f"{_label_for_worker(loop_label)} tool failed",
+                    detail=error.message[:200],
+                    worker=loop_label,
+                    tool_name=call.name,
+                )
             new_rows.extend(rows)
             messages.append(
                 {
@@ -192,6 +210,20 @@ def _sanitize_args(args: dict[str, object]) -> str:
     except (TypeError, ValueError):
         return "<unserializable>"
     return text if len(text) <= _TOOL_ARGS_MAX else text[:_TOOL_ARGS_MAX] + "…"
+
+
+def _label_for_worker(loop_label: str) -> str:
+    return {
+        "extractor": "Extractor",
+        "evidence_retriever": "Evidence retriever",
+    }.get(loop_label, loop_label)
+
+
+def _tool_status_detail(tool_name: str) -> str:
+    return {
+        "list_unindexed_documents": "Listing uploaded documents that may need extraction",
+        "extract_documents": "Starting or polling a document extraction job",
+    }.get(tool_name, f"Calling {tool_name}")
 
 
 def merge_rows(existing: list[TypedRow], incoming: list[TypedRow]) -> list[TypedRow]:

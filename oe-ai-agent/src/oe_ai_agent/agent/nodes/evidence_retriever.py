@@ -20,6 +20,7 @@ from oe_ai_agent.llm.client import LlmClient
 from oe_ai_agent.llm.prompts_supervisor import build_evidence_messages
 from oe_ai_agent.observability import step
 from oe_ai_agent.schemas.chat import ChatFactType
+from oe_ai_agent.status import update_current_chat_status
 from oe_ai_agent.tools import FhirClient
 from oe_ai_agent.tools.chat_registry import EVIDENCE_TOOL_NAMES, evidence_tools_schema
 
@@ -38,6 +39,11 @@ def make_evidence_retriever_node(
 
     async def evidence_node(state: ChatState) -> Command[str]:
         async with step("evidence_retriever", model=llm.model_id) as outer:
+            update_current_chat_status(
+                stage="Evidence retriever running",
+                detail="Selecting chart tools and fetching evidence",
+                worker="evidence_retriever",
+            )
             async with FhirClient(
                 base_url=state.fhir_base_url,
                 bearer_token=state.bearer_token.get_secret_value(),
@@ -68,6 +74,12 @@ def make_evidence_retriever_node(
                     "new_row_count": len(rows),
                     "error_count": len(errors),
                 }
+            )
+            update_current_chat_status(
+                stage="Evidence retriever finished",
+                detail=f"Fetched {len(rows)} rows",
+                worker="evidence_retriever",
+                attrs={"new_row_count": len(rows), "error_count": len(errors)},
             )
 
         merged_context = merge_rows(state.cached_context, rows)
