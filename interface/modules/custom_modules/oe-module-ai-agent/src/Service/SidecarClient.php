@@ -27,9 +27,14 @@ final class SidecarClient
 {
     private const BRIEF_TIMEOUT_SECONDS = 30.0;
     // Supervisor + evidence + (optional) extractor + finalize routinely takes
-    // longer than a single-LLM-call chat. Observed 97s on a real turn that the
-    // 90s cap killed mid-flight. Override per-deploy with AI_AGENT_CHAT_TIMEOUT_SECONDS.
-    private const CHAT_TIMEOUT_SECONDS = 180.0;
+    // longer than a single-LLM-call chat. Observed a 197s turn on staging
+    // (extractor + multi-tool evidence_retriever) that blew past the 180s
+    // cap. Sidecar's extractor poll is 120s and trips an EXTRACTION_PENDING
+    // path on slow intake/lab OCR, but finalize + verifier still need ~60s
+    // headroom on top. 240s gives that margin without making the user wait
+    // forever on a stuck request. Override per-deploy with
+    // AI_AGENT_CHAT_TIMEOUT_SECONDS.
+    private const CHAT_TIMEOUT_SECONDS = 240.0;
     private const DOCUMENT_TIMEOUT_SECONDS = 180.0;
 
     public function __construct(

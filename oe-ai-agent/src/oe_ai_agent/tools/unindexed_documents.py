@@ -28,11 +28,13 @@ from oe_ai_agent.tools.fhir_client import FhirClient, FhirError
 
 DEFAULT_POLL_INTERVAL_SECONDS = 1.5
 # Document OCR + structured extraction (intake / lab) routinely runs 50-80s
-# end-to-end, so 60s is too tight: when the poll times out, the chat tool
-# returns before the questionnaire_response / procedure_result rows have
-# been committed and the next tool call sees an empty chart. 180s gives
-# the worker enough headroom while still bounding the chat turn.
-DEFAULT_POLL_TIMEOUT_SECONDS = 180.0
+# end-to-end. The poll cap has to leave the rest of the chat turn
+# (supervisor + evidence_retriever + finalize, ~30-60s) plus network +
+# verifier overhead inside the PHP wrapper's CHAT_TIMEOUT_SECONDS window
+# (currently 240s). 120s catches every fast-path extraction and trips the
+# EXTRACTION_PENDING path for slow ones, which makes finalize tell the
+# user to retry rather than letting PHP time out mid-flight.
+DEFAULT_POLL_TIMEOUT_SECONDS = 120.0
 TERMINAL_JOB_STATUSES = frozenset({"completed", "partial", "failed"})
 
 
