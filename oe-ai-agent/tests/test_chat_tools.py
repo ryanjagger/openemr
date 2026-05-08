@@ -171,7 +171,7 @@ async def test_no_arg_tools_reject_unexpected_arguments() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_observations_builds_category_text_and_date_query() -> None:
+async def test_get_observations_filters_text_client_side_with_category_and_date_query() -> None:
     captured: dict[str, str] = {}
 
     def _capture(request: httpx.Request) -> httpx.Response:
@@ -186,6 +186,16 @@ async def test_get_observations_builds_category_text_and_date_query() -> None:
                     "category": [{"text": "Vital Signs"}],
                     "code": {"text": "Blood pressure"},
                     "valueString": "120/80",
+                    "effectiveDateTime": "2026-04-01",
+                    "meta": {"lastUpdated": "2026-04-01T00:00:00+00:00"},
+                },
+                {
+                    "resourceType": "Observation",
+                    "id": "obs-weight",
+                    "subject": {"reference": f"Patient/{PATIENT}"},
+                    "category": [{"text": "Vital Signs"}],
+                    "code": {"text": "Weight"},
+                    "valueString": "180 lb",
                     "effectiveDateTime": "2026-04-01",
                     "meta": {"lastUpdated": "2026-04-01T00:00:00+00:00"},
                 }
@@ -212,9 +222,11 @@ async def test_get_observations_builds_category_text_and_date_query() -> None:
     assert error is None
     assert captured.get("patient") == PATIENT
     assert captured.get("category") == "vital-signs"
-    assert captured.get("code:text") == "blood pressure"
+    assert "code" not in captured
+    assert "code:text" not in captured
+    assert captured.get("_count") == "200"
     assert captured.get("date") == "ge2026-01-01"
-    assert rows[0].resource_id == "obs-bp"
+    assert [row.resource_id for row in rows] == ["obs-bp"]
     assert rows[0].fields["valueString"] == "120/80"
 
 
@@ -470,5 +482,4 @@ async def test_get_active_problems_drops_inactive_clinical_status() -> None:
 
     assert error is None
     assert [row.resource_id for row in rows] == ["active-1"]
-
 

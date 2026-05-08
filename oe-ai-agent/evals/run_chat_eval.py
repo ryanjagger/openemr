@@ -101,11 +101,9 @@ _TOOL_RULES: tuple[tuple[tuple[str, ...], str, dict[str, Any]], ...] = (
     (("medication", "medications", "medicine", "lisinopril", "stop"), "get_active_medications", {}),
     (("allerg",), "get_allergies", {}),
     (("problem", "diagnose", "diagnosis", "diagnoses", "condition"), "get_active_problems", {}),
-    (
-        ("a1c", "hemoglobin", "creatinine", "ldl", "lab trend"),
-        "get_lab_trend",
-        {"code_or_text": "hemoglobin a1c"},
-    ),
+    (("creatinine",), "get_lab_trend", {"code_or_text": "creatinine"}),
+    (("ldl",), "get_lab_trend", {"code_or_text": "ldl"}),
+    (("a1c", "hemoglobin", "lab trend"), "get_lab_trend", {"code_or_text": "hemoglobin a1c"}),
     (
         ("blood pressure", "heart rate", "vital", "weight", "bmi", "observation"),
         "get_observations",

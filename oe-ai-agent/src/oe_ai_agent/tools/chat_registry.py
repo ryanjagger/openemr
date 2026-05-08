@@ -294,6 +294,9 @@ async def _handle_list_unindexed_documents(
     return rows
 
 
+EXTRACTION_PENDING_SENTINEL = "EXTRACTION_PENDING"
+
+
 async def _handle_extract_documents(
     client: FhirClient,
     patient_uuid: str,
@@ -302,11 +305,21 @@ async def _handle_extract_documents(
     selections = _parse_extract_selections(arguments.get("documents"))
     if not selections:
         raise ValueError("documents must be a non-empty list")
-    rows, _ = await extract_documents(
+    rows, status = await extract_documents(
         client,
         patient_uuid,
         selections=selections,
     )
+    if status.get("timed_out") is True:
+        # Surface as a tool error so the extractor LLM can report it instead
+        # of pretending the job finished. The extractor node also keys off
+        # this sentinel to flip ChatState.extraction_pending so finalize can
+        # tell the user to retry in ~30s.
+        raise ValueError(
+            f"{EXTRACTION_PENDING_SENTINEL}: document extraction is still "
+            "running in the background and rows are not yet visible. Ask "
+            "the user to retry in 30 seconds."
+        )
     return rows
 
 

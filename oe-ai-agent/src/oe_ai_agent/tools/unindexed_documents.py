@@ -27,7 +27,12 @@ from oe_ai_agent.schemas.unindexed_document import UnindexedDocument
 from oe_ai_agent.tools.fhir_client import FhirClient, FhirError
 
 DEFAULT_POLL_INTERVAL_SECONDS = 1.5
-DEFAULT_POLL_TIMEOUT_SECONDS = 60.0
+# Document OCR + structured extraction (intake / lab) routinely runs 50-80s
+# end-to-end, so 60s is too tight: when the poll times out, the chat tool
+# returns before the questionnaire_response / procedure_result rows have
+# been committed and the next tool call sees an empty chart. 180s gives
+# the worker enough headroom while still bounding the chat turn.
+DEFAULT_POLL_TIMEOUT_SECONDS = 180.0
 TERMINAL_JOB_STATUSES = frozenset({"completed", "partial", "failed"})
 
 

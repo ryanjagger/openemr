@@ -17,7 +17,11 @@ from oe_ai_agent.llm.client import LlmClient
 from oe_ai_agent.llm.prompts_supervisor import build_extractor_messages
 from oe_ai_agent.observability import step
 from oe_ai_agent.tools import FhirClient
-from oe_ai_agent.tools.chat_registry import EXTRACTOR_TOOL_NAMES, extractor_tools_schema
+from oe_ai_agent.tools.chat_registry import (
+    EXTRACTION_PENDING_SENTINEL,
+    EXTRACTOR_TOOL_NAMES,
+    extractor_tools_schema,
+)
 
 ExtractorNode = Callable[[ChatState], Awaitable[Command[str]]]
 
@@ -55,12 +59,16 @@ def make_extractor_node(
                     loop_label="extractor",
                 )
 
+            extraction_pending = any(
+                EXTRACTION_PENDING_SENTINEL in (err.message or "") for err in errors
+            )
             outer.attrs.update(
                 {
                     "iterations": iterations,
                     "tool_calls": tool_calls,
                     "new_row_count": len(rows),
                     "error_count": len(errors),
+                    "extraction_pending": extraction_pending,
                 }
             )
 
@@ -71,6 +79,7 @@ def make_extractor_node(
                 "cached_context": merged_context,
                 "fetch_errors": [*state.fetch_errors, *errors],
                 "extractor_runs": state.extractor_runs + 1,
+                "extraction_pending": state.extraction_pending or extraction_pending,
             },
         )
 

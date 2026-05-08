@@ -29,6 +29,12 @@ class ChatState(BaseModel):
     supervisor_turns_remaining: int = 6
     extractor_runs: int = 0
     evidence_runs: int = 0
+    # True when the extractor's extract_documents tool poll-timed out before
+    # the ingestion job reached a terminal status. The job is still running
+    # in the background; the freshly-extracted rows are not yet visible in
+    # FHIR, so finalize should tell the user to retry in ~30s rather than
+    # claim "no data".
+    extraction_pending: bool = False
 
     raw_envelope: str | None = None
     parsed_narrative: str = ""

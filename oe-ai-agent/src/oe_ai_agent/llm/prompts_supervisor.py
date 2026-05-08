@@ -121,13 +121,27 @@ def build_finalize_messages(
     cached_context: list[TypedRow],
     history: list[ChatMessage],
     allowed_types: frozenset[ChatFactType],
+    extraction_pending: bool = False,
 ) -> list[dict[str, Any]]:
+    chart_block = _chart_context_block(patient_uuid, cached_context)
+    if extraction_pending:
+        # The user uploaded a document just before asking, but ingestion
+        # didn't finish in time for this turn. Tell finalize to surface
+        # that explicitly so the user knows to retry rather than read
+        # "no data" as "the document had nothing relevant."
+        chart_block += (
+            "\nDOCUMENT EXTRACTION STATUS:\n"
+            "- A document the user just uploaded is still being extracted "
+            "in the background. Any answers about that document will not "
+            "be in the chart context yet. If the user is asking about a "
+            "recently uploaded document, explicitly tell them: "
+            "'document extraction is still running — please ask again in "
+            "about 30 seconds.' Do not claim the document had no relevant "
+            "data when the extraction has not finished.\n"
+        )
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": _chat_system_prompt(allowed_types)},
-        {
-            "role": "user",
-            "content": _chart_context_block(patient_uuid, cached_context),
-        },
+        {"role": "user", "content": chart_block},
     ]
     for msg in history:
         messages.append({"role": msg.role.value, "content": msg.content})
@@ -223,6 +237,11 @@ def _extractor_system_prompt() -> str:
         "- After extract_documents returns, reply with a brief plain-text "
         "  status (one short sentence). Do not write JSON, do not narrate "
         "  the user, do not advise.\n"
+        "- If extract_documents reports an EXTRACTION_PENDING error, the "
+        "  ingestion is still running in the background. Reply with a "
+        "  single sentence saying extraction is still in progress; do NOT "
+        "  retry the extraction this turn. The finalize step will tell "
+        "  the user to ask again shortly.\n"
         "- If no document is clearly relevant, respond with a single "
         "  sentence saying so and call no tools.\n"
     )

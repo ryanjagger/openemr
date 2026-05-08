@@ -38,6 +38,7 @@ def make_finalize_node(
                 cached_context=state.cached_context,
                 history=state.history,
                 allowed_types=types,
+                extraction_pending=state.extraction_pending,
             )
             result = await llm.chat_with_tools(
                 messages,

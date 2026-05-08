@@ -37,20 +37,44 @@ async def test_loinc_code_is_passed_with_system() -> None:
 
 
 @pytest.mark.asyncio
-async def test_freetext_uses_code_text_modifier() -> None:
+async def test_freetext_fetches_wide_window_and_filters_client_side() -> None:
     captured: dict[str, str] = {}
 
     def _capture(request: httpx.Request) -> httpx.Response:
         captured.update(dict(request.url.params))
-        return httpx.Response(200, json=_bundle())
+        return httpx.Response(
+            200,
+            json=_bundle(
+                {
+                    "resourceType": "Observation",
+                    "id": "obs-a1c",
+                    "subject": {"reference": f"Patient/{PATIENT}"},
+                    "code": {"text": "Hemoglobin A1c"},
+                    "valueQuantity": {"value": 7.2, "unit": "%"},
+                    "effectiveDateTime": "2026-01-15",
+                    "meta": {"lastUpdated": "2026-01-15T00:00:00+00:00"},
+                },
+                {
+                    "resourceType": "Observation",
+                    "id": "obs-creatinine",
+                    "subject": {"reference": f"Patient/{PATIENT}"},
+                    "code": {"text": "Creatinine"},
+                    "valueQuantity": {"value": 1.1, "unit": "mg/dL"},
+                    "effectiveDateTime": "2026-01-15",
+                    "meta": {"lastUpdated": "2026-01-15T00:00:00+00:00"},
+                },
+            ),
+        )
 
     with respx.mock(assert_all_called=False) as mock:
         mock.get(f"{FHIR_BASE}/Observation").mock(side_effect=_capture)
         async with FhirClient(base_url=FHIR_BASE, bearer_token="t") as client:
-            await get_lab_trend(client, PATIENT, code_or_text="hemoglobin a1c")
+            rows = await get_lab_trend(client, PATIENT, code_or_text="hemoglobin a1c")
 
-    assert captured.get("code:text") == "hemoglobin a1c"
     assert "code" not in captured
+    assert "code:text" not in captured
+    assert captured.get("_count") == "200"
+    assert [row.resource_id for row in rows] == ["obs-a1c"]
 
 
 @pytest.mark.asyncio
