@@ -17,7 +17,7 @@ from oe_ai_agent.schemas.document_extraction import (
 )
 
 
-class _ExtractionEnvelope(BaseModel):
+class ExtractionEnvelope(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     document_summary: str | None = None
@@ -32,7 +32,7 @@ class DocumentExtractionParseError(ValueError):
 async def extract_document_with_llm(
     llm: LlmClient,
     request: DocumentExtractionRequest,
-) -> tuple[_ExtractionEnvelope, LlmUsage]:
+) -> tuple[ExtractionEnvelope, LlmUsage]:
     """Extract document facts, returning the envelope and LLM usage.
 
     The mock provider intentionally avoids inspecting PHI-bearing document
@@ -50,7 +50,7 @@ async def extract_document_with_llm(
     )
     try:
         decoded = json.loads(result.content)
-        envelope = _ExtractionEnvelope.model_validate(decoded)
+        envelope = ExtractionEnvelope.model_validate(decoded)
     except (json.JSONDecodeError, ValidationError) as exc:
         raise DocumentExtractionParseError(
             "document extraction response was not valid extraction JSON",
@@ -62,7 +62,7 @@ async def extract_document_with_llm(
 async def _mock_extraction(
     llm: LlmClient,
     request: DocumentExtractionRequest,
-) -> tuple[_ExtractionEnvelope, LlmUsage]:
+) -> tuple[ExtractionEnvelope, LlmUsage]:
     if request.document_type == "lab_report":
         fact = ExtractedDocumentFact(
             fact_type="lab_result",
@@ -93,7 +93,7 @@ async def _mock_extraction(
         response_format=None,
     )
     return (
-        _ExtractionEnvelope(
+        ExtractionEnvelope(
             document_summary="Mock extraction placeholder.",
             extraction_confidence=0.0,
             facts=[fact],
@@ -139,7 +139,12 @@ def _instruction_text(request: DocumentExtractionRequest) -> str:
             "as the displayed result, value_numeric only when the displayed "
             "result is a plain number, unit when present, reference_range when "
             "present, flag when present, observed_on as YYYY-MM-DD when visible, "
-            "and source_snippets with short verbatim evidence and page_number."
+            "and source_snippets with short verbatim evidence and page_number. "
+            "The snippet text must be copied verbatim from the document — do "
+            "not paraphrase or normalize whitespace — because a downstream "
+            "step locates each snippet on the rendered page by exact text "
+            "matching. Do not emit bbox coordinates; bbox is computed "
+            "deterministically after extraction."
         )
     return (
         f"Document filename: {request.filename}\n"
@@ -156,7 +161,12 @@ def _instruction_text(request: DocumentExtractionRequest) -> str:
         "'date' based on the answer's natural shape — use 'choice' for "
         "checkbox/radio questions and list the available answer_options "
         "exactly as printed on the form; and source_snippets with short "
-        "verbatim evidence and page_number."
+        "verbatim evidence and page_number. The snippet text must be "
+        "copied verbatim from the document — do not paraphrase or "
+        "normalize whitespace — because a downstream step locates each "
+        "snippet on the rendered page by exact text matching. Do not emit "
+        "bbox coordinates; bbox is computed deterministically after "
+        "extraction."
     )
 
 
@@ -186,23 +196,17 @@ def _image_url_block(request: DocumentExtractionRequest) -> dict[str, Any]:
 
 
 def _response_format() -> dict[str, Any]:
+    # bbox is deliberately absent: it is filled in deterministically after
+    # extraction by ``oe_ai_agent.documents.bbox_localizer``. Asking the
+    # model to emit bbox coordinates produced unreliable highlights even
+    # when the snippet text was correct.
     snippet_schema = {
         "type": "object",
         "properties": {
             "page_number": {"type": ["integer", "null"]},
             "text": {"type": "string"},
-            "bbox": {
-                "type": ["object", "null"],
-                "properties": {
-                    "x": {"type": "number"},
-                    "y": {"type": "number"},
-                    "width": {"type": "number"},
-                    "height": {"type": "number"},
-                },
-                "additionalProperties": False,
-            },
         },
-        "required": ["page_number", "text", "bbox"],
+        "required": ["page_number", "text"],
         "additionalProperties": False,
     }
     fact_schema = {
@@ -257,7 +261,7 @@ def _response_format() -> dict[str, Any]:
 def to_response(
     request: DocumentExtractionRequest,
     model_id: str,
-    envelope: _ExtractionEnvelope,
+    envelope: ExtractionEnvelope,
     meta: Any,
 ) -> DocumentExtractionResponse:
     return DocumentExtractionResponse(

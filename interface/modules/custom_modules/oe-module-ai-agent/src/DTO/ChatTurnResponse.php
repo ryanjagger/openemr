@@ -84,6 +84,10 @@ final readonly class ChatTurnResponse
                         ],
                         $fact->citations,
                     ),
+                    'source_provenance' => array_map(
+                        static fn (SourceProvenance $source): array => $source->toArray(),
+                        $fact->sourceProvenance,
+                    ),
                     'verified' => $fact->verified,
                     'anchor' => $fact->anchor,
                 ],

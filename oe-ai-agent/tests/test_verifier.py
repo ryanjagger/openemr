@@ -167,6 +167,51 @@ def test_chat_lab_result_can_cite_observation() -> None:
     assert failures == []
 
 
+def test_chat_lab_result_includes_ai_pdf_source_provenance() -> None:
+    rows = [
+        _row(
+            "Observation",
+            "obs-1",
+            fields={
+                "category": [{"coding": [{"code": "laboratory"}]}],
+                "aiProvenance": {
+                    "documentId": "42",
+                    "page": 2,
+                    "bbox": [0.1, 0.2, 0.3, 0.4],
+                    "snippet": "LDL 132 mg/dL",
+                    "confidence": 0.94,
+                    "model": "claude-test",
+                },
+            },
+            verbatim="LDL 132 mg/dL",
+        )
+    ]
+    fact = ChatFact(
+        type=ChatFactType.LAB_RESULT,
+        text="LDL 132 mg/dL",
+        verbatim_excerpts=["LDL 132 mg/dL"],
+        citations=[Citation(resource_type="Observation", resource_id="obs-1")],
+    )
+
+    verified, failures = _verify_chat_facts(
+        [fact],
+        rows,
+        expected_patient_uuid=PATIENT,
+        allowed_types=frozenset(ChatFactType),
+        now=NOW,
+    )
+
+    assert failures == []
+    assert len(verified) == 1
+    assert len(verified[0].source_provenance) == 1
+    source = verified[0].source_provenance[0]
+    assert source.document_id == "42"
+    assert source.page == 2
+    assert source.snippet == "LDL 132 mg/dL"
+    assert source.resource_type == "Observation"
+    assert source.resource_id == "obs-1"
+
+
 def test_chat_intake_answer_can_cite_questionnaire_response() -> None:
     rows = [
         _row(
@@ -203,6 +248,64 @@ def test_chat_intake_answer_can_cite_questionnaire_response() -> None:
 
     assert verified == [fact]
     assert failures == []
+
+
+def test_chat_intake_answer_includes_matching_item_pdf_source_provenance() -> None:
+    rows = [
+        _row(
+            "QuestionnaireResponse",
+            "qr-1",
+            fields={
+                "item": [
+                    {
+                        "linkId": "chief-concern",
+                        "text": "Chief concern",
+                        "answer": [{"valueString": "Fatigue when walking uphill"}],
+                        "aiProvenance": {
+                            "documentId": "43",
+                            "page": 1,
+                            "snippet": "CHIEF CONCERN Fatigue when walking uphill",
+                        },
+                    },
+                    {
+                        "linkId": "insurance",
+                        "text": "Insurance",
+                        "answer": [{"valueString": "BlueCross PPO"}],
+                        "aiProvenance": {
+                            "documentId": "43",
+                            "page": 4,
+                            "snippet": "INSURANCE BlueCross PPO",
+                        },
+                    },
+                ],
+            },
+            verbatim="Chief concern: Fatigue when walking uphill",
+        )
+    ]
+    fact = ChatFact(
+        type=ChatFactType.INTAKE_ANSWER,
+        text="Chief concern: fatigue when walking uphill",
+        verbatim_excerpts=["CHIEF CONCERN Fatigue when walking uphill"],
+        citations=[
+            Citation(resource_type="QuestionnaireResponse", resource_id="qr-1")
+        ],
+    )
+
+    verified, failures = _verify_chat_facts(
+        [fact],
+        rows,
+        expected_patient_uuid=PATIENT,
+        allowed_types=frozenset(ChatFactType),
+        now=NOW,
+    )
+
+    assert failures == []
+    assert len(verified) == 1
+    assert len(verified[0].source_provenance) == 1
+    source = verified[0].source_provenance[0]
+    assert source.document_id == "43"
+    assert source.page == 1
+    assert source.link_id == "chief-concern"
 
 
 def test_chat_medication_cannot_cite_questionnaire_response_as_structured_med() -> None:

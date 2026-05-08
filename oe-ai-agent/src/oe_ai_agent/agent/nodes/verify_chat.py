@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 from oe_ai_agent.agent.chat_state import ChatState
 from oe_ai_agent.observability import step, update_langfuse_observation
 from oe_ai_agent.schemas.brief import VerificationFailure
-from oe_ai_agent.schemas.chat import ChatFact, ChatFactType
+from oe_ai_agent.schemas.chat import ChatFact, ChatFactType, SourceProvenance
 from oe_ai_agent.schemas.tool_results import TypedRow
 from oe_ai_agent.status import update_current_chat_status
 from oe_ai_agent.verifier.constraints import (
@@ -46,6 +46,7 @@ _GUIDELINE_FALLBACK_NARRATIVE = (
 _EMPTY_ANSWER_FALLBACK_NARRATIVE = (
     "I couldn't find enough chart evidence to answer that question."
 )
+_MIN_SOURCE_MATCH_CHARS = 3
 
 
 def make_verify_chat_node(
@@ -199,11 +200,215 @@ def _verify_chat_facts(
             or _check_staleness(fact, tool_rows, moment, item_index=index)
         )
         if failure is None:
-            verified.append(fact)
+            verified.append(_with_source_provenance(fact, tool_rows))
         else:
             failures.append(failure)
 
     return verified, failures
+
+
+def _with_source_provenance(fact: ChatFact, tool_rows: list[TypedRow]) -> ChatFact:
+    sources = _source_provenance_for_fact(fact, tool_rows)
+    if not sources:
+        return fact
+    return fact.model_copy(update={"source_provenance": sources})
+
+
+def _source_provenance_for_fact(
+    fact: ChatFact,
+    tool_rows: list[TypedRow],
+) -> list[SourceProvenance]:
+    rows_by_key = {(row.resource_type, row.resource_id): row for row in tool_rows}
+    haystack = _source_match_haystack(fact)
+    sources: list[SourceProvenance] = []
+    seen: set[tuple[str, str, str, int | None, str | None, str | None]] = set()
+
+    for citation in fact.citations:
+        row = rows_by_key.get((citation.resource_type, citation.resource_id))
+        if row is None:
+            continue
+
+        direct = _source_from_provenance(row.fields.get("aiProvenance"), row)
+        if direct is not None:
+            _append_unique_source(sources, seen, direct)
+
+        for source in _matching_item_sources(row, haystack):
+            _append_unique_source(sources, seen, source)
+
+    return sources
+
+
+def _append_unique_source(
+    sources: list[SourceProvenance],
+    seen: set[tuple[str, str, str, int | None, str | None, str | None]],
+    source: SourceProvenance,
+) -> None:
+    key = (
+        source.resource_type,
+        source.resource_id,
+        source.document_id,
+        source.page,
+        source.link_id,
+        source.snippet,
+    )
+    if key in seen:
+        return
+    seen.add(key)
+    sources.append(source)
+
+
+def _matching_item_sources(row: TypedRow, haystack: str) -> list[SourceProvenance]:
+    items = row.fields.get("item")
+    all_sources: list[SourceProvenance] = []
+    matched_sources: list[SourceProvenance] = []
+    _collect_item_sources(row, items, haystack, all_sources, matched_sources)
+    if matched_sources:
+        return matched_sources
+    if len(all_sources) == 1:
+        return all_sources
+    return []
+
+
+def _collect_item_sources(
+    row: TypedRow,
+    items: object,
+    haystack: str,
+    all_sources: list[SourceProvenance],
+    matched_sources: list[SourceProvenance],
+) -> None:
+    if not isinstance(items, list):
+        return
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        link_id = _optional_string(item.get("linkId"))
+        source = _source_from_provenance(
+            item.get("aiProvenance"),
+            row,
+            link_id=link_id,
+        )
+        if source is not None:
+            all_sources.append(source)
+            if _item_source_matches_fact(item, source, haystack):
+                matched_sources.append(source)
+
+        nested = item.get("item")
+        if isinstance(nested, list):
+            _collect_item_sources(row, nested, haystack, all_sources, matched_sources)
+
+
+def _source_from_provenance(
+    value: object,
+    row: TypedRow,
+    *,
+    link_id: str | None = None,
+) -> SourceProvenance | None:
+    if not isinstance(value, dict):
+        return None
+    document_id = _document_id(value.get("documentId") or value.get("document_id"))
+    if document_id is None:
+        return None
+
+    return SourceProvenance(
+        resource_type=row.resource_type,
+        resource_id=row.resource_id,
+        document_id=document_id,
+        page=_optional_int(value.get("page")),
+        bbox=value.get("bbox"),
+        snippet=_optional_string(value.get("snippet")),
+        confidence=_optional_float(value.get("confidence")),
+        model=_optional_string(value.get("model")),
+        link_id=link_id,
+    )
+
+
+def _source_match_haystack(fact: ChatFact) -> str:
+    parts = [fact.text, *fact.verbatim_excerpts]
+    return _normalize_source_text("\n".join(part for part in parts if part))
+
+
+def _item_source_matches_fact(
+    item: dict[object, object],
+    source: SourceProvenance,
+    haystack: str,
+) -> bool:
+    if not haystack:
+        return False
+    candidates = [source.snippet, _optional_string(item.get("text"))]
+    candidates.extend(_answer_strings(item.get("answer")))
+    for candidate in candidates:
+        normalized = _normalize_source_text(candidate or "")
+        if len(normalized) < _MIN_SOURCE_MATCH_CHARS:
+            continue
+        if normalized in haystack or haystack in normalized:
+            return True
+    return False
+
+
+def _answer_strings(answer: object) -> list[str]:
+    if not isinstance(answer, list):
+        return []
+    values: list[str] = []
+    for entry in answer:
+        if not isinstance(entry, dict):
+            continue
+        for key, value in entry.items():
+            if not isinstance(key, str) or not key.startswith("value"):
+                continue
+            if isinstance(value, str):
+                values.append(value)
+            elif isinstance(value, int | float | bool):
+                values.append(str(value))
+            elif isinstance(value, dict):
+                text = value.get("text")
+                if isinstance(text, str):
+                    values.append(text)
+    return values
+
+
+def _normalize_source_text(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+def _document_id(value: object) -> str | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    return None
+
+
+def _optional_string(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _optional_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _optional_float(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _check_disabled_type(

@@ -704,6 +704,7 @@ async def test_supervisor_routes_to_extractor_when_unindexed_lab_present() -> No
     assert final["extractor_runs"] == 1
     assert job_polls["count"] >= 1
     assert any(f.citations[0].resource_id == "obs-ldl-1" for f in final["verified_facts"])
+    assert final["verified_facts"][0].source_provenance[0].document_id == "11"
     assert "132" in final["parsed_narrative"]
 
 

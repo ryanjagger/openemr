@@ -10,6 +10,8 @@ from oe_ai_agent.schemas.observability import ResponseMeta
 
 DocumentType = Literal["lab_report", "intake_form"]
 IntakeAnswerType = Literal["string", "boolean", "choice", "integer", "decimal", "date"]
+BboxSource = Literal["text_layer", "ocr", "llm"]
+BboxTarget = Literal["row", "value", "field", "snippet"]
 
 
 class SourceSnippet(BaseModel):
@@ -18,6 +20,13 @@ class SourceSnippet(BaseModel):
     page_number: int | None = None
     text: str
     bbox: dict[str, float] | None = None
+    # Provenance for the bbox itself: where it came from and how confident
+    # the localization was. Set by the deterministic localizer that runs
+    # after LLM extraction; ``None`` means we never tried (or never found)
+    # a localization for this snippet.
+    bbox_source: BboxSource | None = None
+    bbox_confidence: float | None = None
+    bbox_target: BboxTarget | None = None
 
 
 class ExtractedDocumentFact(BaseModel):

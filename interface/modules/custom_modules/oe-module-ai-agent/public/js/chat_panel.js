@@ -12,7 +12,11 @@
     var sendBtn = document.getElementById('oe-ai-agent-chat-send');
     var pid = panel.getAttribute('data-pid');
     var csrf = panel.getAttribute('data-csrf');
+    var documentRetrieveEndpoint = panel.getAttribute('data-document-retrieve-url') ||
+        '/controller.php?document&retrieve';
     var endpoint = '/apis/default/api/ai/chat/' + encodeURIComponent(pid);
+    var sourcePreviewEndpoint = '/apis/default/api/ai/documents/' +
+        encodeURIComponent(pid) + '/source-preview';
     var STATUS_POLL_INTERVAL_MS = 1000;
 
     // In-memory conversation state — ephemeral by design (per ARCH chat
@@ -26,7 +30,9 @@
         statusPollTimer: null,
         statusPollInFlight: false,
         statusPollGeneration: 0,
-        pendingRequestId: null
+        pendingRequestId: null,
+        sourcePreview: null,
+        sourcePreviewCache: {}
     };
 
     // Maps controller error codes to human-readable copy. Codes here must
@@ -359,6 +365,34 @@
 
         card.appendChild(header);
 
+        var sourceLinks = sourceLinksForFact(fact);
+        if (sourceLinks.length > 0) {
+            var sourceRow = document.createElement('div');
+            sourceRow.className = 'mt-1 small';
+
+            sourceLinks.forEach(function (source) {
+                var link = document.createElement('a');
+                link.className = 'btn btn-sm py-0 mr-1 mb-1';
+                link.href = sourcePdfUrl(source);
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.style.backgroundColor = '#ffffff';
+                link.style.border = '1px solid #6c757d';
+                link.style.color = '#212529';
+                link.style.fontWeight = '600';
+                attachSourcePreview(link, source);
+                link.textContent = source.page
+                    ? 'PDF p. ' + source.page
+                    : 'PDF source';
+                link.setAttribute('aria-label', source.page
+                    ? 'Open source PDF page ' + source.page
+                    : 'Open source PDF');
+                sourceRow.appendChild(link);
+            });
+
+            card.appendChild(sourceRow);
+        }
+
         var excerpts = (fact.verbatim_excerpts || []).filter(function (e) {
             return typeof e === 'string' && e.length > 0;
         });
@@ -389,6 +423,361 @@
         }
 
         return card;
+    }
+
+    function sourceLinksForFact(fact) {
+        var rawSources = Array.isArray(fact.source_provenance)
+            ? fact.source_provenance
+            : [];
+        var links = [];
+        var seen = {};
+
+        rawSources.forEach(function (source) {
+            if (!source || typeof source !== 'object') {
+                return;
+            }
+            var documentId = normalDocumentId(source.document_id);
+            if (!documentId) {
+                return;
+            }
+            var page = normalPage(source.page);
+            var snippet = typeof source.snippet === 'string' ? source.snippet.trim() : '';
+            var bbox = normalBbox(source.bbox);
+            var key = documentId + '|' + (page || '') + '|' + bboxKey(bbox) + '|' + snippet;
+            if (seen[key]) {
+                return;
+            }
+            seen[key] = true;
+            links.push({
+                documentId: documentId,
+                page: page,
+                bbox: bbox,
+                snippet: snippet,
+                bboxSource: typeof source.bbox_source === 'string' ? source.bbox_source : null,
+                bboxTarget: typeof source.bbox_target === 'string' ? source.bbox_target : null,
+                bboxConfidence: typeof source.bbox_confidence === 'number' ? source.bbox_confidence : null
+            });
+        });
+
+        return links;
+    }
+
+    function normalDocumentId(value) {
+        var documentId = typeof value === 'number' ? String(value) : value;
+        if (typeof documentId !== 'string' || !/^\d+$/.test(documentId)) {
+            return null;
+        }
+        return documentId;
+    }
+
+    function normalPage(value) {
+        if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+            return value;
+        }
+        if (typeof value === 'string' && /^\d+$/.test(value)) {
+            var parsed = parseInt(value, 10);
+            return parsed > 0 ? parsed : null;
+        }
+        return null;
+    }
+
+    function normalBbox(value) {
+        if (!value || typeof value !== 'object') {
+            return null;
+        }
+        var raw = Array.isArray(value)
+            ? {
+                x: value[0],
+                y: value[1],
+                width: value[2],
+                height: value[3]
+            }
+            : value;
+        var x = normalNumber(raw.x);
+        var y = normalNumber(raw.y);
+        var width = normalNumber(raw.width);
+        var height = normalNumber(raw.height);
+        if (x === null || y === null || width === null || height === null) {
+            return null;
+        }
+        if (x < 0 || y < 0 || width <= 0 || height <= 0) {
+            return null;
+        }
+        return {
+            x: x,
+            y: y,
+            width: width,
+            height: height
+        };
+    }
+
+    function normalNumber(value) {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            return value;
+        }
+        if (typeof value === 'string' && value.trim() !== '') {
+            var parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : null;
+        }
+        return null;
+    }
+
+    function bboxKey(bbox) {
+        if (!bbox) {
+            return '';
+        }
+        return [bbox.x, bbox.y, bbox.width, bbox.height].join(',');
+    }
+
+    function sourcePdfUrl(source) {
+        var url = documentRetrieveEndpoint +
+            '&patient_id=' + encodeURIComponent(pid) +
+            '&document_id=' + encodeURIComponent(source.documentId) +
+            '&as_file=false' +
+            '&original_file=true' +
+            '&disable_exit=false' +
+            '&show_original=true';
+        var fragment = [];
+        if (source.page) {
+            fragment.push('page=' + encodeURIComponent(String(source.page)));
+        }
+        if (source.preview === true) {
+            fragment.push('toolbar=0');
+            fragment.push('navpanes=0');
+            fragment.push('scrollbar=0');
+            fragment.push('view=FitH');
+        }
+        if (fragment.length > 0) {
+            url += '#' + fragment.join('&');
+        }
+        return url;
+    }
+
+    function attachSourcePreview(link, source) {
+        link.addEventListener('mouseenter', function () {
+            showSourcePreview(link, source);
+        });
+        link.addEventListener('focus', function () {
+            showSourcePreview(link, source);
+        });
+        link.addEventListener('mousemove', function () {
+            positionSourcePreview(link);
+        });
+        link.addEventListener('mouseleave', hideSourcePreview);
+        link.addEventListener('blur', hideSourcePreview);
+    }
+
+    function showSourcePreview(anchor, source) {
+        var preview = state.sourcePreview || createSourcePreview();
+        state.sourcePreview = preview;
+        preview.innerHTML = '';
+
+        var heading = document.createElement('div');
+        heading.style.fontWeight = '600';
+        heading.style.marginBottom = '4px';
+        heading.textContent = source.page
+            ? 'Source PDF, page ' + source.page
+            : 'Source PDF';
+        preview.appendChild(heading);
+
+        if (source.snippet) {
+            var snippet = document.createElement('div');
+            snippet.className = 'text-monospace';
+            snippet.style.fontSize = '12px';
+            snippet.style.whiteSpace = 'pre-wrap';
+            snippet.style.background = '#f8f9fa';
+            snippet.style.border = '1px solid #dee2e6';
+            snippet.style.padding = '4px 6px';
+            snippet.style.marginBottom = '6px';
+            snippet.textContent = source.snippet;
+            preview.appendChild(snippet);
+        }
+
+        preview.appendChild(renderPdfPagePreview(source));
+
+        preview.style.display = 'block';
+        positionSourcePreview(anchor);
+    }
+
+    function createSourcePreview() {
+        var preview = document.createElement('div');
+        preview.id = 'oe-ai-agent-source-preview';
+        preview.setAttribute('role', 'tooltip');
+        preview.style.position = 'fixed';
+        preview.style.zIndex = '2000';
+        preview.style.width = '680px';
+        preview.style.maxWidth = 'calc(100vw - 24px)';
+        preview.style.background = '#fff';
+        preview.style.border = '1px solid #adb5bd';
+        preview.style.borderRadius = '4px';
+        preview.style.boxShadow = '0 6px 18px rgba(0, 0, 0, 0.18)';
+        preview.style.padding = '8px';
+        preview.style.pointerEvents = 'none';
+        preview.style.display = 'none';
+        document.body.appendChild(preview);
+        return preview;
+    }
+
+    function positionSourcePreview(anchor) {
+        var preview = state.sourcePreview;
+        if (!preview || preview.style.display === 'none') {
+            return;
+        }
+        var rect = anchor.getBoundingClientRect();
+        var margin = 8;
+        var left = rect.left;
+        var top = rect.bottom + margin;
+
+        if (left + preview.offsetWidth > window.innerWidth - margin) {
+            left = window.innerWidth - preview.offsetWidth - margin;
+        }
+        if (top + preview.offsetHeight > window.innerHeight - margin) {
+            top = rect.top - preview.offsetHeight - margin;
+        }
+        preview.style.left = Math.max(margin, left) + 'px';
+        preview.style.top = Math.max(margin, top) + 'px';
+    }
+
+    function hideSourcePreview() {
+        if (state.sourcePreview) {
+            state.sourcePreview.style.display = 'none';
+        }
+    }
+
+    function renderPdfPagePreview(source) {
+        var wrap = document.createElement('div');
+        wrap.style.width = '100%';
+        wrap.style.marginBottom = '6px';
+
+        var body = document.createElement('div');
+        body.style.position = 'relative';
+        body.style.width = '100%';
+        body.style.height = '520px';
+        body.style.border = '1px solid #dee2e6';
+        body.style.background = '#f8f9fa';
+        body.style.overflow = 'hidden';
+        body.style.display = 'flex';
+        body.style.alignItems = 'center';
+        body.style.justifyContent = 'center';
+
+        var loading = document.createElement('div');
+        loading.className = 'text-muted';
+        loading.style.fontSize = '12px';
+        loading.textContent = 'Loading PDF page preview...';
+        body.appendChild(loading);
+        wrap.appendChild(body);
+
+        var note = document.createElement('div');
+        note.className = 'text-muted';
+        note.style.fontSize = '12px';
+        note.style.marginTop = '6px';
+        note.textContent = source.bbox
+            ? 'Red box marks the matched ' + (source.bboxTarget || 'field') + ' on the page.'
+            : 'Exact location could not be matched in the PDF text layer; showing the page only.';
+        wrap.appendChild(note);
+
+        loadSourcePreviewImage(source, body, note);
+        return wrap;
+    }
+
+    function loadSourcePreviewImage(source, body, note) {
+        var key = sourcePreviewCacheKey(source);
+        var cached = state.sourcePreviewCache[key];
+        if (cached) {
+            showSourcePreviewImage(cached, body);
+            return;
+        }
+
+        fetch(sourcePreviewUrl(source), {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: {
+                'APICSRFTOKEN': csrf,
+                'Accept': 'image/png'
+            }
+        }).then(function (response) {
+            if (!response.ok) {
+                throw new Error('source_preview_failed');
+            }
+            return response.blob();
+        }).then(function (blob) {
+            var objectUrl = URL.createObjectURL(blob);
+            state.sourcePreviewCache[key] = objectUrl;
+            showSourcePreviewImage(objectUrl, body);
+        }).catch(function () {
+            body.innerHTML = '';
+            body.appendChild(renderPdfIframePreview(source));
+            note.textContent = 'Preview image unavailable; open the PDF to inspect the source page.';
+        });
+    }
+
+    function showSourcePreviewImage(objectUrl, body) {
+        body.innerHTML = '';
+
+        var img = document.createElement('img');
+        img.src = objectUrl;
+        img.alt = 'Source PDF page preview';
+        img.style.maxWidth = '100%';
+        img.style.maxHeight = '100%';
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'contain';
+        img.style.background = '#fff';
+        body.appendChild(img);
+    }
+
+    function sourcePreviewUrl(source) {
+        var params = [
+            'document_id=' + encodeURIComponent(source.documentId),
+            'page=' + encodeURIComponent(String(source.page || 1))
+        ];
+        if (source.bbox) {
+            params.push('x=' + encodeURIComponent(String(source.bbox.x)));
+            params.push('y=' + encodeURIComponent(String(source.bbox.y)));
+            params.push('width=' + encodeURIComponent(String(source.bbox.width)));
+            params.push('height=' + encodeURIComponent(String(source.bbox.height)));
+            params.push('bbox_unit=' + encodeURIComponent(bboxUnit(source.bbox)));
+        }
+
+        return sourcePreviewEndpoint + '?' + params.join('&');
+    }
+
+    function sourcePreviewCacheKey(source) {
+        return source.documentId + '|' + (source.page || 1) + '|' + bboxKey(source.bbox);
+    }
+
+    function bboxUnit(bbox) {
+        if (bbox.x <= 1 && bbox.y <= 1 && bbox.width <= 1 && bbox.height <= 1) {
+            return 'normalized';
+        }
+        if (bbox.x <= 100 && bbox.y <= 100 && bbox.width <= 100 && bbox.height <= 100) {
+            return 'percent';
+        }
+        return 'pixels';
+    }
+
+    function renderPdfIframePreview(source) {
+        var wrap = document.createElement('div');
+        wrap.style.width = '100%';
+        wrap.style.height = '100%';
+
+        var frame = document.createElement('iframe');
+        var frameSource = {
+            documentId: source.documentId,
+            page: source.page,
+            preview: true
+        };
+        frame.src = sourcePdfUrl(frameSource);
+        frame.title = source.page
+            ? 'Source PDF page ' + source.page
+            : 'Source PDF preview';
+        frame.tabIndex = -1;
+        frame.style.width = '100%';
+        frame.style.height = '100%';
+        frame.style.border = '0';
+        frame.style.background = '#f8f9fa';
+        wrap.appendChild(frame);
+        return wrap;
     }
 
     function flashFactCard(anchor) {

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import base64
+import binascii
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import cache
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 
 from oe_ai_agent.agent.chat_state import ChatState
 from oe_ai_agent.agent.graph import build_graph
@@ -15,10 +18,13 @@ from oe_ai_agent.agent.state import AgentState
 from oe_ai_agent.auth import require_internal_auth
 from oe_ai_agent.config import load_settings
 from oe_ai_agent.conversation import TurnLimitError, get_default_store
+from oe_ai_agent.documents.bbox_localizer import localize_facts
+from oe_ai_agent.documents.pdf_preview import PdfPreviewError, render_pdf_page_preview
 from oe_ai_agent.errors import classify_chat_exception, summarize_error
 from oe_ai_agent.llm import LiteLLMClient, LlmClient, MockLlmClient
 from oe_ai_agent.llm.document_extraction import (
     DocumentExtractionParseError,
+    ExtractionEnvelope,
     extract_document_with_llm,
     to_response,
 )
@@ -43,6 +49,7 @@ from oe_ai_agent.schemas import (
 )
 from oe_ai_agent.schemas.brief import VerificationFailure
 from oe_ai_agent.schemas.observability import ResponseMeta, StepEntry, UsageBlock
+from oe_ai_agent.schemas.pdf_preview import PdfPagePreviewRequest
 from oe_ai_agent.schemas.tool_results import TypedRow
 from oe_ai_agent.status import (
     chat_status_context,
@@ -418,6 +425,8 @@ async def extract_document(request: DocumentExtractionRequest) -> DocumentExtrac
                 if collector is not None:
                     collector.add_usage(usage)
 
+            envelope = await _localize_envelope_bboxes(envelope, request)
+
             meta = _build_meta(trace)
             response = to_response(request, model_id, envelope, meta)
             _emit_complete(
@@ -437,6 +446,20 @@ async def extract_document(request: DocumentExtractionRequest) -> DocumentExtrac
             return response
     finally:
         clear_request_context()
+
+
+@app.post("/v1/documents/pdf-page-preview", dependencies=[Depends(require_internal_auth)])
+async def pdf_page_preview(request: PdfPagePreviewRequest) -> Response:
+    try:
+        content = render_pdf_page_preview(request)
+    except PdfPreviewError as exc:
+        raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
+
+    return Response(
+        content=content,
+        media_type="image/png",
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 def _build_meta(trace: TraceCollector) -> ResponseMeta:
@@ -530,3 +553,47 @@ def _document_context_metadata(prefix: str, rows: list[TypedRow]) -> dict[str, o
 
 def _summarize_error(exc: BaseException) -> str:
     return summarize_error(exc)
+
+
+async def _localize_envelope_bboxes(
+    envelope: ExtractionEnvelope,
+    request: DocumentExtractionRequest,
+) -> ExtractionEnvelope:
+    """Replace LLM-supplied bboxes with text-layer-localized ones.
+
+    Runs only for PDFs (the localizer needs a text layer) and only when
+    the envelope contains facts. Failures are swallowed: the worst case
+    is the UI rendering snippets without a highlight, which is the
+    intended fallback for unmatched evidence.
+    """
+    if not envelope.facts or request.mime_type != "application/pdf":
+        return envelope
+
+    try:
+        pdf_bytes = base64.b64decode(request.content_base64, validate=True)
+    except (binascii.Error, ValueError):
+        return envelope
+
+    async with step("document.localize_bboxes") as record:
+        try:
+            new_facts = await asyncio.to_thread(
+                localize_facts,
+                list(envelope.facts),
+                pdf_bytes=pdf_bytes,
+            )
+        except Exception as exc:
+            logger.warning("bbox_localization_failed", error=str(exc))
+            record.attrs["error_code"] = "bbox_localization_failed"
+            return envelope
+
+        located = sum(
+            1
+            for fact in new_facts
+            for snippet in fact.source_snippets
+            if snippet.bbox is not None
+        )
+        total = sum(len(fact.source_snippets) for fact in new_facts)
+        record.attrs["snippet_count"] = total
+        record.attrs["snippet_localized"] = located
+
+    return envelope.model_copy(update={"facts": new_facts})

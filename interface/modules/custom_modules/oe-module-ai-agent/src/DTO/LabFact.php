@@ -53,6 +53,15 @@ final readonly class LabFact
                     pageNumber: is_int($page) ? $page : null,
                     text: $text,
                     bbox: is_array($bbox) ? self::normalizeBbox($bbox) : null,
+                    bboxSource: self::nullableEnum(
+                        $snippet['bbox_source'] ?? null,
+                        LabSourceSnippet::BBOX_SOURCES,
+                    ),
+                    bboxConfidence: self::nullableFloat($snippet['bbox_confidence'] ?? null),
+                    bboxTarget: self::nullableEnum(
+                        $snippet['bbox_target'] ?? null,
+                        LabSourceSnippet::BBOX_TARGETS,
+                    ),
                 );
             }
         }
@@ -107,5 +116,17 @@ final readonly class LabFact
         }
 
         return null;
+    }
+
+    /**
+     * @param list<string> $allowed
+     */
+    private static function nullableEnum(mixed $value, array $allowed): ?string
+    {
+        if (!is_string($value) || !in_array($value, $allowed, true)) {
+            return null;
+        }
+
+        return $value;
     }
 }

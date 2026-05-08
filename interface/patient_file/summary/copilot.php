@@ -77,7 +77,8 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
         <div class="col-sm-12">
             <section id="oe-ai-agent-chat-panel"
                 data-pid="<?php echo attr((string) $pid); ?>"
-                data-csrf="<?php echo attr($apiCsrfToken); ?>">
+                data-csrf="<?php echo attr($apiCsrfToken); ?>"
+                data-document-retrieve-url="<?php echo attr($GLOBALS['webroot'] . '/controller.php?document&retrieve'); ?>">
                 <div id="oe-ai-agent-chat-log" class="mb-3">
                     <div class="text-muted small">
                         <?php echo xlt("Ask a question grounded in this patient's chart and indexed documents. The agent summarizes evidence, not treatment orders."); ?>
@@ -102,7 +103,7 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
     <?php $oemr_ui->oeBelowContainerDiv(); ?>
 </div>
 
-<script src="<?php echo attr($publicPath); ?>/js/chat_panel.js?v=0.6.9"></script>
+<script src="<?php echo attr($publicPath); ?>/js/chat_panel.js?v=0.7.5"></script>
 
 </body>
 </html>

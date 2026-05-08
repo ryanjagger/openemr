@@ -178,6 +178,15 @@ final class DocumentIngestionRepository
         return $this->jobStatus($patientId, $jobUuid);
     }
 
+    public function canAccessDocument(int $patientId, string $username, int $documentId): bool
+    {
+        if ($documentId <= 0 || $username === '') {
+            return false;
+        }
+
+        return $this->canUseDocument(new \Document($documentId), $patientId, $username);
+    }
+
     /**
      * @return array<string, mixed>
      */
