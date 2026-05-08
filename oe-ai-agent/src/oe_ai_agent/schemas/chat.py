@@ -53,6 +53,20 @@ class ChatFactType(StrEnum):
     CODE_STATUS = "code_status"
 
 
+class SourceProvenance(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    resource_type: str
+    resource_id: str
+    document_id: str
+    page: int | None = None
+    bbox: Any | None = None
+    snippet: str | None = None
+    confidence: float | None = None
+    model: str | None = None
+    link_id: str | None = None
+
+
 class ChatFact(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -60,6 +74,7 @@ class ChatFact(BaseModel):
     text: str
     verbatim_excerpts: list[str] = Field(default_factory=list)
     citations: list[Citation] = Field(default_factory=list)
+    source_provenance: list[SourceProvenance] = Field(default_factory=list)
     verified: bool = True
     anchor: int | None = None
 

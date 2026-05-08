@@ -24,6 +24,7 @@ use OpenEMR\Modules\AiAgent\Controller\DocumentIngestionController;
 use stdClass;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Response;
 
 final class Bootstrap
 {
@@ -83,6 +84,12 @@ final class Bootstrap
             'POST /api/ai/documents/ingest/:pid',
             function (string $pid, HttpRestRequest $request): JsonResponse {
                 return DocumentIngestionController::default()->ingest($pid, $request);
+            },
+        );
+        $event->addToRouteMap(
+            'GET /api/ai/documents/:pid/source-preview',
+            function (string $pid, HttpRestRequest $request): Response {
+                return DocumentIngestionController::default()->sourcePreview($pid, $request);
             },
         );
         $event->addToRouteMap(

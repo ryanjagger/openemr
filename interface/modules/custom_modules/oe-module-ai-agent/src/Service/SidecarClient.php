@@ -37,6 +37,7 @@ final class SidecarClient
     // AI_AGENT_CHAT_TIMEOUT_SECONDS.
     private const CHAT_TIMEOUT_SECONDS = 240.0;
     private const DOCUMENT_TIMEOUT_SECONDS = 180.0;
+    private const PDF_PREVIEW_TIMEOUT_SECONDS = 15.0;
 
     public function __construct(
         private readonly string $baseUrl,
@@ -110,6 +111,35 @@ final class SidecarClient
     }
 
     /**
+     * @param array{x: float, y: float, width: float, height: float}|null $bbox
+     */
+    public function renderPdfPagePreview(string $pdfData, int $page, ?array $bbox, string $bboxUnit): string
+    {
+        $body = [
+            'content_base64' => base64_encode($pdfData),
+            'page' => max(1, $page),
+            'bbox_unit' => in_array($bboxUnit, ['normalized', 'percent', 'pixels'], true)
+                ? $bboxUnit
+                : 'normalized',
+        ];
+        if ($bbox !== null) {
+            $body['bbox'] = [
+                'x' => $bbox['x'],
+                'y' => $bbox['y'],
+                'width' => $bbox['width'],
+                'height' => $bbox['height'],
+            ];
+        }
+
+        return $this->postBinary(
+            '/v1/documents/pdf-page-preview',
+            $body,
+            'source-preview',
+            self::PDF_PREVIEW_TIMEOUT_SECONDS,
+        );
+    }
+
+    /**
      * @param array<string, mixed> $body
      *
      * @return array<string, mixed>
@@ -168,6 +198,74 @@ final class SidecarClient
             ]);
 
             return $decoded;
+        } catch (TransportExceptionInterface $e) {
+            $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
+            $this->logger->error('sidecar.request.transport_error', [
+                'path' => $path,
+                'request_id' => $requestId,
+                'latency_ms' => $latencyMs,
+                'error' => $e->getMessage(),
+            ]);
+            throw new RuntimeException('Sidecar transport error', previous: $e);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $body
+     */
+    private function postBinary(
+        string $path,
+        array $body,
+        string $requestId,
+        float $timeoutSeconds,
+    ): string {
+        $startedAt = microtime(true);
+        $this->logger->debug('sidecar.request.start', [
+            'path' => $path,
+            'request_id' => $requestId,
+        ]);
+        try {
+            $response = $this->httpClient->request(
+                method: 'POST',
+                url: $this->baseUrl . $path,
+                options: [
+                    'headers' => [
+                        'Content-Type' => 'application/json',
+                        'Accept' => 'image/png',
+                        'X-Internal-Auth' => $this->internalAuthSecret,
+                    ],
+                    'body' => json_encode($body, JSON_THROW_ON_ERROR),
+                    'timeout' => $timeoutSeconds,
+                ],
+            );
+            $status = $response->getStatusCode();
+            $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
+            if ($status !== 200) {
+                $raw = $response->getContent(throw: false);
+                $errorCode = self::errorCodeFromBody($raw);
+                $errorDetail = self::errorDetailFromBody($raw);
+                $this->logger->warning('sidecar.request.http_error', [
+                    'path' => $path,
+                    'request_id' => $requestId,
+                    'status' => $status,
+                    'latency_ms' => $latencyMs,
+                    'error_code' => $errorCode,
+                    'body_preview' => substr($raw, 0, 400),
+                ]);
+                $message = "Sidecar returned HTTP {$status}";
+                if ($errorDetail !== null) {
+                    $message .= ": {$errorDetail}";
+                }
+                throw new SidecarRequestException($status, $errorCode, $errorDetail, $message);
+            }
+            $this->logger->info('sidecar.request.complete', [
+                'path' => $path,
+                'request_id' => $requestId,
+                'status' => $status,
+                'latency_ms' => $latencyMs,
+            ]);
+
+            return $response->getContent();
         } catch (TransportExceptionInterface $e) {
             $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
             $this->logger->error('sidecar.request.transport_error', [

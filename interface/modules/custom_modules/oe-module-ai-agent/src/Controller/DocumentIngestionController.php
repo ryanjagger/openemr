@@ -21,7 +21,9 @@ use OpenEMR\Common\Uuid\UuidRegistry;
 use OpenEMR\Modules\AiAgent\Service\DocumentIngestionLauncher;
 use OpenEMR\Modules\AiAgent\Service\DocumentIngestionRepository;
 use OpenEMR\Modules\AiAgent\Service\PatientAccessValidator;
+use OpenEMR\Modules\AiAgent\Service\SidecarClient;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
 final class DocumentIngestionController
@@ -133,6 +135,63 @@ final class DocumentIngestionController
         }
     }
 
+    public function sourcePreview(string $pid, HttpRestRequest $request): Response
+    {
+        $patientId = $this->patientId($pid);
+        if ($patientId === 0) {
+            return new Response('', Response::HTTP_NOT_FOUND);
+        }
+        if (!$this->patientAccessValidator->canRead((string) $patientId)) {
+            return new Response('', Response::HTTP_FORBIDDEN);
+        }
+
+        $username = $this->username($request);
+        if ($username === '') {
+            return new Response('', Response::HTTP_UNAUTHORIZED);
+        }
+
+        $documentId = $this->queryInt($request, 'document_id', 0);
+        if (!$this->repository->canAccessDocument($patientId, $username, $documentId)) {
+            return new Response('', Response::HTTP_NOT_FOUND);
+        }
+
+        try {
+            $document = new \Document($documentId);
+            if ((string) $document->get_mimetype() !== 'application/pdf') {
+                return new Response('', Response::HTTP_UNSUPPORTED_MEDIA_TYPE);
+            }
+
+            $data = $document->get_data();
+            if (!is_string($data) || $data === '') {
+                return new Response('', Response::HTTP_NOT_FOUND);
+            }
+
+            $page = max(1, $this->queryInt($request, 'page', 1));
+            $bbox = $this->bboxPayload($request);
+            $bboxUnit = $this->bboxUnit($request, $bbox);
+            try {
+                $content = SidecarClient::fromEnvironment()->renderPdfPagePreview(
+                    $data,
+                    $page,
+                    $bbox,
+                    $bboxUnit,
+                );
+                return $this->pngResponse($content);
+            } catch (Throwable $e) {
+                error_log('oe-module-ai-agent: sidecar source PDF preview failed: ' . $e->getMessage());
+            }
+
+            return $this->renderPdfPagePreview(
+                pdfData: $data,
+                page: $page,
+                request: $request,
+            );
+        } catch (Throwable $e) {
+            error_log('oe-module-ai-agent: source PDF preview failed: ' . $e->getMessage());
+            return new Response('', Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+    }
+
     /**
      * @return list<array{document_id: int, document_type: string}>
      */
@@ -237,6 +296,185 @@ final class DocumentIngestionController
         }
 
         return $default;
+    }
+
+    private function queryFloat(HttpRestRequest $request, string $key): ?float
+    {
+        $value = $request->query->get($key);
+        if (is_int($value) || is_float($value)) {
+            return (float) $value;
+        }
+        if (is_string($value) && is_numeric($value)) {
+            return (float) $value;
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{x: float, y: float, width: float, height: float}|null
+     */
+    private function bboxPayload(HttpRestRequest $request): ?array
+    {
+        $x = $this->queryFloat($request, 'x');
+        $y = $this->queryFloat($request, 'y');
+        $width = $this->queryFloat($request, 'width');
+        $height = $this->queryFloat($request, 'height');
+        if ($x === null || $y === null || $width === null || $height === null) {
+            return null;
+        }
+        if ($x < 0 || $y < 0 || $width <= 0 || $height <= 0) {
+            return null;
+        }
+
+        return [
+            'x' => $x,
+            'y' => $y,
+            'width' => $width,
+            'height' => $height,
+        ];
+    }
+
+    /**
+     * @param array{x: float, y: float, width: float, height: float}|null $bbox
+     */
+    private function bboxUnit(HttpRestRequest $request, ?array $bbox): string
+    {
+        $unit = $this->queryString($request, 'bbox_unit');
+        if (in_array($unit, ['normalized', 'percent', 'pixels'], true)) {
+            return (string) $unit;
+        }
+        if ($bbox === null) {
+            return 'normalized';
+        }
+
+        return $this->inferBboxUnit($bbox['x'], $bbox['y'], $bbox['width'], $bbox['height']);
+    }
+
+    private function renderPdfPagePreview(string $pdfData, int $page, HttpRestRequest $request): Response
+    {
+        $pdf = new \Imagick();
+        $pdf->setResolution(144, 144);
+        $pdf->readImageBlob($pdfData);
+
+        $pageIndex = $page - 1;
+        if ($pageIndex < 0 || $pageIndex >= $pdf->getNumberImages()) {
+            $pdf->clear();
+            $pdf->destroy();
+            return new Response('', Response::HTTP_NOT_FOUND);
+        }
+
+        $pdf->setIteratorIndex($pageIndex);
+        $pageImage = $pdf->getImage();
+        $pageImage->setImageBackgroundColor(new \ImagickPixel('white'));
+        $image = $pageImage->mergeImageLayers(\Imagick::LAYERMETHOD_FLATTEN);
+        $image->setImageFormat('png');
+
+        $bbox = $this->bboxPixels($request, $image->getImageWidth(), $image->getImageHeight());
+        if ($bbox !== null) {
+            $this->drawBbox($image, $bbox);
+        }
+
+        $content = $image->getImagesBlob();
+
+        $image->clear();
+        $image->destroy();
+        $pageImage->clear();
+        $pageImage->destroy();
+        $pdf->clear();
+        $pdf->destroy();
+
+        return new Response($content, Response::HTTP_OK, [
+            'Content-Type' => 'image/png',
+            'Cache-Control' => 'private, max-age=300',
+        ]);
+    }
+
+    /**
+     * @return array{left: float, top: float, right: float, bottom: float}|null
+     */
+    private function bboxPixels(HttpRestRequest $request, int $imageWidth, int $imageHeight): ?array
+    {
+        $x = $this->queryFloat($request, 'x');
+        $y = $this->queryFloat($request, 'y');
+        $width = $this->queryFloat($request, 'width');
+        $height = $this->queryFloat($request, 'height');
+        if ($x === null || $y === null || $width === null || $height === null) {
+            return null;
+        }
+        if ($x < 0 || $y < 0 || $width <= 0 || $height <= 0) {
+            return null;
+        }
+
+        $unit = $this->bboxUnit($request, [
+            'x' => $x,
+            'y' => $y,
+            'width' => $width,
+            'height' => $height,
+        ]);
+        [$scaleX, $scaleY] = match ($unit) {
+            'normalized' => [(float) $imageWidth, (float) $imageHeight],
+            'percent' => [$imageWidth / 100.0, $imageHeight / 100.0],
+            default => [1.0, 1.0],
+        };
+
+        $left = $this->clamp($x * $scaleX, 0.0, (float) $imageWidth);
+        $top = $this->clamp($y * $scaleY, 0.0, (float) $imageHeight);
+        $right = $this->clamp(($x + $width) * $scaleX, 0.0, (float) $imageWidth);
+        $bottom = $this->clamp(($y + $height) * $scaleY, 0.0, (float) $imageHeight);
+
+        if ($right - $left < 2.0 || $bottom - $top < 2.0) {
+            return null;
+        }
+
+        return [
+            'left' => $left,
+            'top' => $top,
+            'right' => $right,
+            'bottom' => $bottom,
+        ];
+    }
+
+    private function inferBboxUnit(float $x, float $y, float $width, float $height): string
+    {
+        if ($x <= 1.0 && $y <= 1.0 && $width <= 1.0 && $height <= 1.0) {
+            return 'normalized';
+        }
+        if ($x <= 100.0 && $y <= 100.0 && $width <= 100.0 && $height <= 100.0) {
+            return 'percent';
+        }
+
+        return 'pixels';
+    }
+
+    /**
+     * @param array{left: float, top: float, right: float, bottom: float} $bbox
+     */
+    private function drawBbox(\Imagick $image, array $bbox): void
+    {
+        $draw = new \ImagickDraw();
+        $strokeWidth = max(3.0, min($image->getImageWidth(), $image->getImageHeight()) * 0.004);
+        $draw->setStrokeColor(new \ImagickPixel('#dc3545'));
+        $draw->setStrokeWidth($strokeWidth);
+        $draw->setFillColor(new \ImagickPixel('#dc3545'));
+        $draw->setFillOpacity(0.18);
+        $draw->rectangle($bbox['left'], $bbox['top'], $bbox['right'], $bbox['bottom']);
+        $image->drawImage($draw);
+        $draw->clear();
+        $draw->destroy();
+    }
+
+    private function pngResponse(string $content): Response
+    {
+        return new Response($content, Response::HTTP_OK, [
+            'Content-Type' => 'image/png',
+            'Cache-Control' => 'private, max-age=300',
+        ]);
+    }
+
+    private function clamp(float $value, float $min, float $max): float
+    {
+        return min($max, max($min, $value));
     }
 
     /**
