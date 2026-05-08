@@ -1,6 +1,6 @@
 | Project | Location |
 |---------|----------|
-| Deployment | [`https://openemr-production-406c.up.railway.app/`](https://openemr-production-406c.up.railway.app/) |
+| Deployment | [`https://openemr-staging-79ff.up.railway.app/`](https://openemr-staging-79ff.up.railway.app/) |
 | Project planning (ARCHITECTURE.md, USER.MD, AUDIT.md) | [`docs/planning/`](docs/planning/) |
 | AI Cost Analysis | [`AI-COST-ANALYSIS.md/`](docs/planning/AI-COST-ANALYSIS.md) |
 | OpenEMR module (PHP) | [`interface/modules/custom_modules/oe-module-ai-agent/`](interface/modules/custom_modules/oe-module-ai-agent/) |
