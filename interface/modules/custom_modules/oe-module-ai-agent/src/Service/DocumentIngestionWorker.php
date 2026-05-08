@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace OpenEMR\Modules\AiAgent\Service;
 
+use OpenEMR\Modules\AiAgent\DTO\IntakeIngestionRequest;
+use OpenEMR\Modules\AiAgent\DTO\LabIngestionRequest;
 use OpenEMR\Modules\AiAgent\DTO\LlmCallLogEntry;
 use OpenEMR\Modules\AiAgent\DTO\LlmCallVerificationStatus;
 use OpenEMR\Modules\AiAgent\DTO\ResponseMeta;
@@ -28,6 +30,8 @@ final class DocumentIngestionWorker
         private readonly DocumentIngestionRepository $repository,
         private readonly SidecarClient $sidecarClient,
         private readonly AuditLogService $auditLogService,
+        private readonly AiLabIngestionService $labIngestionService,
+        private readonly AiIntakeIngestionService $intakeIngestionService,
         private readonly int $maxDocumentBytes = self::DEFAULT_MAX_DOCUMENT_BYTES,
     ) {
     }
@@ -38,6 +42,8 @@ final class DocumentIngestionWorker
             new DocumentIngestionRepository(),
             SidecarClient::fromEnvironment(),
             AuditLogService::default(),
+            AiLabIngestionService::default(),
+            AiIntakeIngestionService::default(),
             self::maxDocumentBytesFromEnvironment(),
         );
     }
@@ -103,7 +109,7 @@ final class DocumentIngestionWorker
                 'content_base64' => base64_encode($data),
             ];
             $response = $this->sidecarClient->extractDocument($requestPayload);
-            $this->repository->persistExtraction($jobDocument, $response);
+            $this->routeExtraction($job, $jobDocument, $response);
             $this->recordAudit(
                 requestId: $requestId,
                 userId: (int) $job['user_id'],
@@ -139,6 +145,45 @@ final class DocumentIngestionWorker
                 errorDetail: $message,
             );
         }
+    }
+
+    /**
+     * Routes the sidecar's extraction output to its native target.
+     *
+     * Lab reports → procedure_result via AiLabIngestionService (Phase 1).
+     * Intake forms → questionnaire_response via AiIntakeIngestionService
+     * (Phase 3).
+     *
+     * @param array<string, mixed> $job
+     * @param array<string, mixed> $jobDocument
+     * @param array<string, mixed> $response
+     */
+    private function routeExtraction(array $job, array $jobDocument, array $response): void
+    {
+        $documentType = (string) ($jobDocument['document_type'] ?? '');
+        $modelId = $response['model_id'] ?? null;
+        $modelIdString = is_string($modelId) ? $modelId : null;
+
+        if ($documentType === 'lab_report') {
+            $request = LabIngestionRequest::fromExtraction($job, $jobDocument, $response);
+            $this->labIngestionService->ingest($request);
+            $this->repository->markDocumentCompleted((int) $jobDocument['id'], $modelIdString);
+
+            return;
+        }
+
+        if ($documentType === 'intake_form') {
+            $request = IntakeIngestionRequest::fromExtraction($job, $jobDocument, $response);
+            $this->intakeIngestionService->ingest($request);
+            $this->repository->markDocumentCompleted((int) $jobDocument['id'], $modelIdString);
+
+            return;
+        }
+
+        // The schema constrains document_type to lab_report or intake_form
+        // (see DocumentIngestionSchema). Anything else is a programming
+        // error in the upstream selection code.
+        throw new \RuntimeException("Unsupported AI ingestion document_type: {$documentType}");
     }
 
     /**

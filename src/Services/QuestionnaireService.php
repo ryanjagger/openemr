@@ -84,6 +84,7 @@ class QuestionnaireService extends BaseService
 
     /**
      * TODO: There are so many arguments here this should be refactored to use a data object.
+     *
      * @param $q
      * @param $name
      * @param ?int $q_record_id
@@ -91,11 +92,24 @@ class QuestionnaireService extends BaseService
      * @param $lform
      * @param $type
      * @param ?string $category the grouping category of the questionnaire
+     * @param ?int $authorUserId  Explicit users.id for the `provider` column.
+     *                            Defaults to the active session's authUserID,
+     *                            so existing UI callers do not need to change.
+     *                            Background services (no session) must pass
+     *                            this in.
      * @return false|int|mixed
      * @throws Exception
      */
-    public function saveQuestionnaireResource($q, $name = null, $q_record_id = null, $q_id = null, $lform = null, $type = null, ?string $category = null)
-    {
+    public function saveQuestionnaireResource(
+        $q,
+        $name = null,
+        $q_record_id = null,
+        $q_id = null,
+        $lform = null,
+        $type = null,
+        ?string $category = null,
+        ?int $authorUserId = null,
+    ) {
         $type ??= 'Questionnaire';
         $id = 0;
         $fhir_ob = null;
@@ -145,11 +159,12 @@ class QuestionnaireService extends BaseService
         $q_display = $q_ob['code'][0]['display'] ?? null;
 
         $content = $this->jsonSerialize($fhir_ob);
-        $session = SessionWrapperFactory::getInstance()->getActiveSession();
+        $resolvedAuthorId = $authorUserId
+            ?? SessionWrapperFactory::getInstance()->getActiveSession()->get('authUserID');
         $bind = [
             $q_uuid,
             $q_id,
-            $session->get('authUserID'),
+            $resolvedAuthorId,
             $q_version,
             $q_last_date,
             $name,
@@ -170,7 +185,7 @@ class QuestionnaireService extends BaseService
         if (!empty($id)) {
             $version_update = (int)$id['version'] + 1;
             $bind = [
-                $session->get('authUserID'),
+                $resolvedAuthorId,
                 $version_update,
                 date("Y-m-d H:i:s"),
                 $name,

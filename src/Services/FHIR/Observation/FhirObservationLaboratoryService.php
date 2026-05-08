@@ -12,10 +12,12 @@
 
 namespace OpenEMR\Services\FHIR\Observation;
 
+use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Common\Utils\ValidationUtils;
 use OpenEMR\FHIR\R4\FHIRDomainResource\FHIRObservation;
 use OpenEMR\FHIR\R4\FHIRDomainResource\FHIRProvenance;
 use OpenEMR\FHIR\R4\FHIRElement\FHIRCodeableConcept;
+use OpenEMR\FHIR\R4\FHIRElement\FHIRExtension;
 use OpenEMR\FHIR\R4\FHIRElement\FHIRId;
 use OpenEMR\FHIR\R4\FHIRElement\FHIRMeta;
 use OpenEMR\FHIR\R4\FHIRResource\FHIRObservation\FHIRObservationReferenceRange;
@@ -51,6 +53,14 @@ class FhirObservationLaboratoryService extends FhirServiceBase implements IPatie
 
     const CATEGORY = "laboratory";
     const USCDI_PROFILE = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab';
+
+    /**
+     * URL of the AI-provenance extension. Surfaces the bbox/page/snippet
+     * data that the AI document-extraction pipeline records in
+     * ai_result_provenance whenever the underlying procedure_result row was
+     * created from an uploaded lab PDF (result_status = 'ai_extracted').
+     */
+    const AI_PROVENANCE_EXTENSION_URL = 'https://openemr.org/fhir/StructureDefinition/ai-provenance';
 
     /**
      * @var ProcedureService
@@ -323,6 +333,14 @@ class FhirObservationLaboratoryService extends FhirServiceBase implements IPatie
             );
         }
 
+        // AI-extracted lab results carry a provenance extension keyed off
+        // the procedure_result.id, surfaced for chat tools that want to cite
+        // the source document page/bbox. No-op for clinician-entered or
+        // HL7-vendor results (they have no row in ai_result_provenance).
+        if (!empty($dataRecord['id'])) {
+            $this->populateAiProvenanceExtension($observation, (int) $dataRecord['id']);
+        }
+
         // Interpretation (USCDI v5)
         if (!empty($dataRecord['result_abnormal'])) {
             // we will populate the text if we don't have a mapped code
@@ -342,6 +360,71 @@ class FhirObservationLaboratoryService extends FhirServiceBase implements IPatie
         }
 
         return $observation;
+    }
+
+    /**
+     * Looks up ai_result_provenance for this procedure_result and, if found,
+     * adds a nested FHIR extension to the Observation. The chat tooling
+     * (oe-ai-agent) consumes this for citation/highlighting.
+     *
+     * One query per Observation. If this becomes a hot path, batch-fetch
+     * provenance for all matched result IDs in searchForOpenEMRRecords()
+     * and pass it down into parseDataRecordsIntoObservationRecords().
+     */
+    private function populateAiProvenanceExtension(FHIRObservation $observation, int $procedureResultId): void
+    {
+        $rows = QueryUtils::fetchRecords(
+            'SELECT `document_id`, `extraction_job_id`, `page_number`, `bbox_json`, '
+            . '`snippet_text`, `extraction_confidence`, `extraction_model` '
+            . 'FROM `ai_result_provenance` WHERE `procedure_result_id` = ? LIMIT 1',
+            [$procedureResultId],
+        );
+        if ($rows === []) {
+            return;
+        }
+        $row = $rows[0];
+
+        $extension = new FHIRExtension();
+        $extension->setUrl(self::AI_PROVENANCE_EXTENSION_URL);
+
+        if ($row['document_id'] !== null) {
+            $extension->addExtension($this->stringSubExtension('documentId', (string) $row['document_id']));
+        }
+        if ($row['extraction_job_id'] !== null) {
+            $extension->addExtension($this->stringSubExtension('extractionJobId', (string) $row['extraction_job_id']));
+        }
+        if ($row['page_number'] !== null) {
+            $page = new FHIRExtension();
+            $page->setUrl('page');
+            $page->setValueInteger((int) $row['page_number']);
+            $extension->addExtension($page);
+        }
+        if (!empty($row['bbox_json'])) {
+            $extension->addExtension($this->stringSubExtension('bbox', (string) $row['bbox_json']));
+        }
+        if (!empty($row['snippet_text'])) {
+            $extension->addExtension($this->stringSubExtension('snippet', (string) $row['snippet_text']));
+        }
+        if ($row['extraction_confidence'] !== null) {
+            $confidence = new FHIRExtension();
+            $confidence->setUrl('confidence');
+            $confidence->setValueDecimal((float) $row['extraction_confidence']);
+            $extension->addExtension($confidence);
+        }
+        if (!empty($row['extraction_model'])) {
+            $extension->addExtension($this->stringSubExtension('model', (string) $row['extraction_model']));
+        }
+
+        $observation->addExtension($extension);
+    }
+
+    private function stringSubExtension(string $url, string $value): FHIRExtension
+    {
+        $sub = new FHIRExtension();
+        $sub->setUrl($url);
+        $sub->setValueString($value);
+
+        return $sub;
     }
 
     protected function setObservationValue(FHIRObservation $observation, array $dataRecord): void

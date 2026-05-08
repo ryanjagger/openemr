@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from oe_ai_agent.schemas.observability import ResponseMeta
 
 DocumentType = Literal["lab_report", "intake_form"]
+IntakeAnswerType = Literal["string", "boolean", "choice", "integer", "decimal", "date"]
 
 
 class SourceSnippet(BaseModel):
@@ -33,6 +34,14 @@ class ExtractedDocumentFact(BaseModel):
     reference_range: str | None = None
     flag: str | None = None
     source_snippets: list[SourceSnippet] = Field(default_factory=list)
+    # Intake-form-only fields. These let the PHP ingestion service build a
+    # FHIR Questionnaire + QuestionnaireResponse pair instead of a flat fact
+    # row. ``link_id`` is the stable join key between definition and response;
+    # ``answer_type`` picks the FHIR item type; ``answer_options`` enumerates
+    # the choices when ``answer_type='choice'``.
+    link_id: str | None = None
+    answer_type: IntakeAnswerType | None = None
+    answer_options: list[str] | None = None
 
 
 class DocumentExtractionRequest(BaseModel):

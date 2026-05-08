@@ -17,17 +17,12 @@ from oe_ai_agent.tools.clinical_guidelines import search_clinical_guidelines
 from oe_ai_agent.tools.demographics import get_demographics
 from oe_ai_agent.tools.fhir_client import FhirClient, FhirError
 from oe_ai_agent.tools.immunizations import get_immunizations
-from oe_ai_agent.tools.indexed_documents import (
-    get_indexed_intake_answers,
-    get_indexed_lab_results,
-    search_indexed_document_facts,
-    search_indexed_documents,
-)
 from oe_ai_agent.tools.lab_trend import get_lab_trend
 from oe_ai_agent.tools.medication_history import get_medication_history
 from oe_ai_agent.tools.observation_search import get_observations
 from oe_ai_agent.tools.orders import get_orders
 from oe_ai_agent.tools.procedures import get_procedures
+from oe_ai_agent.tools.questionnaire_responses import get_questionnaire_responses
 from oe_ai_agent.tools.recent_encounters import get_recent_encounters
 from oe_ai_agent.tools.recent_notes import get_recent_notes
 from oe_ai_agent.tools.unindexed_documents import (
@@ -118,64 +113,15 @@ async def _handle_recent_notes(
     )
 
 
-async def _handle_search_indexed_documents(
+async def _handle_questionnaire_responses(
     client: FhirClient,
     patient_uuid: str,
     arguments: dict[str, object],
 ) -> list[TypedRow]:
-    return await search_indexed_documents(
+    return await get_questionnaire_responses(
         client,
         patient_uuid,
-        document_type=_optional_str(arguments.get("document_type")),
-        query=_optional_str(arguments.get("query")),
-        limit=_optional_limit(arguments.get("limit")),
-    )
-
-
-async def _handle_search_indexed_document_facts(
-    client: FhirClient,
-    patient_uuid: str,
-    arguments: dict[str, object],
-) -> list[TypedRow]:
-    return await search_indexed_document_facts(
-        client,
-        patient_uuid,
-        document_uuid=_optional_str(arguments.get("document_uuid")),
-        document_type=_optional_str(arguments.get("document_type")),
-        fact_type=_optional_str(arguments.get("fact_type")),
-        query=_optional_str(arguments.get("query")),
-        observed_on_from=_optional_date_string(
-            arguments.get("observed_on_from"),
-            "observed_on_from",
-        ),
-        observed_on_to=_optional_date_string(arguments.get("observed_on_to"), "observed_on_to"),
-        limit=_optional_limit(arguments.get("limit")),
-    )
-
-
-async def _handle_indexed_lab_results(
-    client: FhirClient,
-    patient_uuid: str,
-    arguments: dict[str, object],
-) -> list[TypedRow]:
-    return await get_indexed_lab_results(
-        client,
-        patient_uuid,
-        code_or_text=_optional_str(arguments.get("code_or_text")),
-        since=_optional_date_string(arguments.get("since"), "since"),
-        limit=_optional_limit(arguments.get("limit")),
-    )
-
-
-async def _handle_indexed_intake_answers(
-    client: FhirClient,
-    patient_uuid: str,
-    arguments: dict[str, object],
-) -> list[TypedRow]:
-    return await get_indexed_intake_answers(
-        client,
-        patient_uuid,
-        query=_optional_str(arguments.get("query")),
+        since=_optional_iso_date(arguments.get("since"), "since"),
         limit=_optional_limit(arguments.get("limit")),
     )
 
@@ -519,112 +465,25 @@ CHAT_TOOL_REGISTRY: dict[str, ChatToolSpec] = {
         },
         handler=_handle_recent_notes,
     ),
-    "search_indexed_documents": ChatToolSpec(
-        name="search_indexed_documents",
+    "get_questionnaire_responses": ChatToolSpec(
+        name="get_questionnaire_responses",
         description=(
-            "Search manifests for uploaded documents that have already been "
-            "ingested by the AI document index. Use for finding available "
-            "uploaded lab reports, intake forms, and future indexed document "
-            "types before fetching detailed facts."
+            "Fetch FHIR QuestionnaireResponse resources for the patient, "
+            "including any AI-extracted intake forms uploaded as PDFs. Each "
+            "response carries item[] entries (linkId, text, answer); "
+            "AI-extracted items also include an aiProvenance field with "
+            "documentId, page, bbox, snippet, confidence, and model for "
+            "source citation."
         ),
         parameters={
             "type": "object",
             "properties": {
-                "document_type": {
-                    "type": "string",
-                    "description": (
-                        "Optional indexed document type, such as lab_report "
-                        "or intake_form."
-                    ),
-                },
-                "query": {
-                    "type": "string",
-                    "description": "Optional filename/type/summary search text.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Optional result limit from 1 to 100.",
-                },
-            },
-            "additionalProperties": False,
-        },
-        handler=_handle_search_indexed_documents,
-    ),
-    "search_indexed_document_facts": ChatToolSpec(
-        name="search_indexed_document_facts",
-        description=(
-            "Search extracted, evidence-backed facts from uploaded/indexed "
-            "documents. Use for uploaded document questions, source evidence, "
-            "intake form answers, and future document fact types."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "document_uuid": {
-                    "type": "string",
-                    "description": "Optional indexed document UUID to restrict the search.",
-                },
-                "document_type": {
-                    "type": "string",
-                    "description": (
-                        "Optional indexed document type, such as lab_report "
-                        "or intake_form."
-                    ),
-                },
-                "fact_type": {
-                    "type": "string",
-                    "description": (
-                        "Optional extracted fact type, such as lab_result "
-                        "or intake_answer."
-                    ),
-                },
-                "query": {
-                    "type": "string",
-                    "description": (
-                        "Optional text to match labels, values, metadata, or "
-                        "source snippets."
-                    ),
-                },
-                "observed_on_from": {
-                    "type": "string",
-                    "description": (
-                        "Optional ISO date (YYYY-MM-DD) lower bound for fact "
-                        "observed_on."
-                    ),
-                },
-                "observed_on_to": {
-                    "type": "string",
-                    "description": (
-                        "Optional ISO date (YYYY-MM-DD) upper bound for fact "
-                        "observed_on."
-                    ),
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Optional result limit from 1 to 100.",
-                },
-            },
-            "additionalProperties": False,
-        },
-        handler=_handle_search_indexed_document_facts,
-    ),
-    "get_indexed_lab_results": ChatToolSpec(
-        name="get_indexed_lab_results",
-        description=(
-            "Fetch lab_result facts extracted from uploaded/indexed lab report "
-            "PDFs or PNGs. This is separate from get_lab_trend, which queries "
-            "structured FHIR Observation data."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "code_or_text": {
-                    "type": "string",
-                    "description": "Optional analyte/lab name text, such as LDL or triglycerides.",
-                },
                 "since": {
                     "type": "string",
-                    "description": "Optional ISO date (YYYY-MM-DD) lower bound for observed_on.",
+                    "description": (
+                        "Optional ISO date (YYYY-MM-DD); only responses "
+                        "authored on or after this date are returned."
+                    ),
                 },
                 "limit": {
                     "type": "integer",
@@ -633,29 +492,7 @@ CHAT_TOOL_REGISTRY: dict[str, ChatToolSpec] = {
             },
             "additionalProperties": False,
         },
-        handler=_handle_indexed_lab_results,
-    ),
-    "get_indexed_intake_answers": ChatToolSpec(
-        name="get_indexed_intake_answers",
-        description=(
-            "Fetch intake_answer facts extracted from uploaded/indexed patient "
-            "intake forms, including source snippets for evidence."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Optional intake question/field/answer text.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Optional result limit from 1 to 100.",
-                },
-            },
-            "additionalProperties": False,
-        },
-        handler=_handle_indexed_intake_answers,
+        handler=_handle_questionnaire_responses,
     ),
     "search_clinical_guidelines": ChatToolSpec(
         name="search_clinical_guidelines",
@@ -702,8 +539,12 @@ CHAT_TOOL_REGISTRY: dict[str, ChatToolSpec] = {
         description=(
             "Fetch the patient's historical Observation values for a single "
             "lab, identified by LOINC code (e.g. '4548-4') or free text "
-            "(e.g. 'hemoglobin a1c'). Use only when the cached chart context "
-            "does not already carry enough history to answer the user's question."
+            "(e.g. 'hemoglobin a1c'). Includes both clinician-entered / "
+            "HL7-vendor results and AI-extracted results from uploaded lab "
+            "PDFs (the latter carry an aiProvenance field with document_id, "
+            "page, bbox, and snippet for citation). Use only when the cached "
+            "chart context does not already carry enough history to answer "
+            "the user's question."
         ),
         parameters={
             "type": "object",
@@ -730,7 +571,10 @@ CHAT_TOOL_REGISTRY: dict[str, ChatToolSpec] = {
         description=(
             "Search the patient's Observation history, including labs, vital "
             "signs, social history, and other coded observations. Use category "
-            "for broad filters such as 'laboratory' or 'vital-signs'."
+            "for broad filters such as 'laboratory' or 'vital-signs'. "
+            "Lab results extracted from uploaded PDFs carry an aiProvenance "
+            "field (document_id, page, bbox, snippet, confidence, model) for "
+            "source citation."
         ),
         parameters={
             "type": "object",
@@ -867,11 +711,15 @@ CHAT_TOOL_REGISTRY: dict[str, ChatToolSpec] = {
         name="extract_documents",
         description=(
             "Run extraction on one or more uploaded documents and block until "
-            "the ingestion job completes. Returns IndexedDocumentFact rows "
-            "for the freshly extracted facts. document_type must be one of "
-            "'lab_report' or 'intake_form'. Pick this only after listing "
-            "unindexed documents and confirming the document is relevant to "
-            "the user's question."
+            "the ingestion job completes. document_type must be one of "
+            "'lab_report' or 'intake_form'. Returns no rows directly — "
+            "extracted lab values land in FHIR Observation (queryable via "
+            "get_lab_trend / get_observations) and intake answers land in "
+            "FHIR QuestionnaireResponse (queryable via "
+            "get_questionnaire_responses); both surfaces carry an "
+            "aiProvenance field for source citation. Pick extract_documents "
+            "only after list_unindexed_documents has shown a relevant "
+            "document."
         ),
         parameters={
             "type": "object",

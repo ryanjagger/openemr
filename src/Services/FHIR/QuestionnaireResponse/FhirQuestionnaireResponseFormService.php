@@ -17,6 +17,7 @@ use DateTimeInterface;
 use InvalidArgumentException;
 use JsonException;
 use OpenEMR\BC\ServiceContainer;
+use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Common\Uuid\UuidRegistry;
 use OpenEMR\FHIR\DomainModels\OpenEMRFhirQuestionnaireResponse;
 use OpenEMR\FHIR\R4\FHIRDomainResource\FHIRProvenance;
@@ -54,6 +55,14 @@ class FhirQuestionnaireResponseFormService extends FhirServiceBase implements IR
      */
     use FhirServiceBaseEmptyTrait;
     use PatientSearchTrait;
+
+    /**
+     * URL of the AI-provenance extension. Mirrors the lab-side constant in
+     * FhirObservationLaboratoryService. For QuestionnaireResponse the
+     * extension is attached per-item (keyed by linkId) since each answer
+     * has its own page/bbox/snippet.
+     */
+    public const AI_PROVENANCE_EXTENSION_URL = 'https://openemr.org/fhir/StructureDefinition/ai-provenance';
 
     /**
      * @var QuestionnaireResponseService
@@ -187,6 +196,18 @@ class FhirQuestionnaireResponseFormService extends FhirServiceBase implements IR
                 ['exception' => $exception, 'uuid' => $dataRecord['uuid'] ?? '']
             );
         }
+
+        // Inject AI provenance extensions per item (keyed by linkId) so the
+        // chat layer can cite source page/bbox/snippet for each answer.
+        // No-op for clinician-entered or imported QuestionnaireResponses
+        // (they have no rows in ai_questionnaire_response_provenance).
+        if (!empty($dataRecord['id']) && isset($innerData['item']) && is_array($innerData['item'])) {
+            $innerData['item'] = $this->attachAiProvenanceToItems(
+                (int) $dataRecord['id'],
+                $innerData['item'],
+            );
+        }
+
         $fhirResource = new OpenEMRFhirQuestionnaireResponse($innerData);
 
         $meta = new FHIRMeta();
@@ -260,6 +281,91 @@ class FhirQuestionnaireResponseFormService extends FhirServiceBase implements IR
      * for use.
      * @return array
      */
+    /**
+     * Looks up ai_questionnaire_response_provenance rows for the given
+     * QuestionnaireResponse and attaches each one as a nested extension on
+     * the matching item by linkId. One query per Observation; if this
+     * becomes hot, batch-fetch in the search step.
+     *
+     * @param list<array<string, mixed>> $items
+     * @return list<array<string, mixed>>
+     */
+    private function attachAiProvenanceToItems(int $responseId, array $items): array
+    {
+        $rows = QueryUtils::fetchRecords(
+            'SELECT `link_id`, `document_id`, `extraction_job_id`, `page_number`, '
+            . '`bbox_json`, `snippet_text`, `extraction_confidence`, `extraction_model` '
+            . 'FROM `ai_questionnaire_response_provenance` WHERE `questionnaire_response_id` = ?',
+            [$responseId],
+        );
+        if ($rows === []) {
+            return $items;
+        }
+
+        $byLinkId = [];
+        foreach ($rows as $row) {
+            $byLinkId[(string) $row['link_id']] = $row;
+        }
+
+        $out = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                $out[] = $item;
+                continue;
+            }
+            $linkId = $item['linkId'] ?? null;
+            if (!is_string($linkId) || !isset($byLinkId[$linkId])) {
+                $out[] = $item;
+                continue;
+            }
+            $extension = $this->provenanceExtension($byLinkId[$linkId]);
+            $existing = $item['extension'] ?? [];
+            if (!is_array($existing)) {
+                $existing = [];
+            }
+            $existing[] = $extension;
+            $item['extension'] = $existing;
+            $out[] = $item;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function provenanceExtension(array $row): array
+    {
+        $sub = [];
+        if ($row['document_id'] !== null) {
+            $sub[] = ['url' => 'documentId', 'valueString' => (string) $row['document_id']];
+        }
+        if ($row['extraction_job_id'] !== null) {
+            $sub[] = ['url' => 'extractionJobId', 'valueString' => (string) $row['extraction_job_id']];
+        }
+        if ($row['page_number'] !== null) {
+            $sub[] = ['url' => 'page', 'valueInteger' => (int) $row['page_number']];
+        }
+        if (!empty($row['bbox_json'])) {
+            $sub[] = ['url' => 'bbox', 'valueString' => (string) $row['bbox_json']];
+        }
+        if (!empty($row['snippet_text'])) {
+            $sub[] = ['url' => 'snippet', 'valueString' => (string) $row['snippet_text']];
+        }
+        if ($row['extraction_confidence'] !== null) {
+            $sub[] = ['url' => 'confidence', 'valueDecimal' => (float) $row['extraction_confidence']];
+        }
+        if (!empty($row['extraction_model'])) {
+            $sub[] = ['url' => 'model', 'valueString' => (string) $row['extraction_model']];
+        }
+
+        return [
+            'url' => self::AI_PROVENANCE_EXTENSION_URL,
+            'extension' => $sub,
+        ];
+    }
+
     protected function loadSearchParameters(): array
     {
         // US CORE 8.0 requires the following

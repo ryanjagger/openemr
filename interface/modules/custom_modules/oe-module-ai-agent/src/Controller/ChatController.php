@@ -166,9 +166,12 @@ final class ChatController
 
         $fhirBaseUrl = (string) (getenv('AI_AGENT_FHIR_BASE_URL')
             ?: 'http://openemr/apis/default/fhir');
-        $documentContext = $patientId > 0
-            ? $this->documentIngestionRepository->documentManifestContextRows($patientId, $patientUuid)
-            : [];
+        // Indexed document context used to come from the ai_document_facts
+        // shadow tables; with the native+FHIR cutover that data lives in
+        // procedure_result and questionnaire_response, retrieved via the
+        // sidecar's get_observations / get_lab_trend / get_questionnaire_responses
+        // chat tools. The chat starts cold for indexed documents now.
+        $documentContext = [];
         $requestHash = $this->hashCanonical([
             'pid' => $pid,
             'request_id' => $requestId,

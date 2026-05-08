@@ -355,7 +355,8 @@ class QuestionnaireResponseService extends BaseService
         $q_id = null,
         $form_response = null,
         $add_report = false,
-        $scores = []
+        $scores = [],
+        ?int $authorUserId = null,
     ) {
         $q_content = null;
         $q_title = null;
@@ -458,7 +459,8 @@ class QuestionnaireResponseService extends BaseService
         // todo add author and other meta
         $r_content = $this->jsonSerialize($fhirResponseOb);
 
-        $session = SessionWrapperFactory::getInstance()->getActiveSession();
+        $resolvedAuthorId = $authorUserId
+            ?? SessionWrapperFactory::getInstance()->getActiveSession()->get('authUserID');
 
         $dataValues = [
             'uuid' => $qr_uuid
@@ -467,8 +469,8 @@ class QuestionnaireResponseService extends BaseService
             , 'questionnaire_id' => $q_id
             , 'questionnaire_name' => $q_title
             // if its created by a patient we won't have an authUserID
-            , 'audit_user_id' => $update_flag ? $session->get('authUserID') : null
-            , 'creator_user_id' => $session->get('authUserID')
+            , 'audit_user_id' => $update_flag ? $resolvedAuthorId : null
+            , 'creator_user_id' => $resolvedAuthorId
             , 'version' => $update_flag ? (int)$id['version'] + 1 : 1
             , 'last_updated' => date("Y-m-d H:i:s")
             , 'patient_id' => $pid

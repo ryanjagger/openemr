@@ -36,16 +36,14 @@ CHAT_ALLOWED_TABLES_FOR_TYPE: dict[ChatFactType, frozenset[str]] = {
     ChatFactType.PROBLEM: frozenset({"Condition"}),
     ChatFactType.ALLERGY: frozenset({"AllergyIntolerance"}),
     ChatFactType.LAB_RESULT: frozenset(
-        {"Observation", "DiagnosticReport", "DocumentReference", "IndexedDocumentFact"}
+        {"Observation", "DiagnosticReport", "DocumentReference"}
     ),
     ChatFactType.VITAL_SIGN: frozenset({"Observation"}),
-    ChatFactType.OBSERVATION: frozenset(
-        {"Observation", "DocumentReference", "IndexedDocumentFact"}
-    ),
+    ChatFactType.OBSERVATION: frozenset({"Observation", "DocumentReference"}),
     ChatFactType.ENCOUNTER: frozenset({"Encounter"}),
-    ChatFactType.NOTE: frozenset({"DocumentReference", "IndexedDocumentFact"}),
-    ChatFactType.INTAKE_ANSWER: frozenset({"IndexedDocumentFact", "DocumentReference"}),
-    ChatFactType.DOCUMENT_FACT: frozenset({"IndexedDocumentFact", "DocumentReference"}),
+    ChatFactType.NOTE: frozenset({"DocumentReference"}),
+    ChatFactType.INTAKE_ANSWER: frozenset({"QuestionnaireResponse", "DocumentReference"}),
+    ChatFactType.DOCUMENT_FACT: frozenset({"DocumentReference"}),
     ChatFactType.GUIDELINE: frozenset({"ClinicalGuidelineChunk"}),
     ChatFactType.ORDER: frozenset({"ServiceRequest"}),
     ChatFactType.PROCEDURE: frozenset({"Procedure"}),

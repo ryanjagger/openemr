@@ -517,10 +517,10 @@ async def test_immunization_question_uses_evidence_worker_tool_loop() -> None:
 async def test_supervisor_routes_to_extractor_when_unindexed_lab_present() -> None:
     """Unindexed lab + lab question → supervisor routes to extractor first.
 
-    The extractor calls extract_documents, which kicks off ingestion and
-    polls the job. We mock all three OpenEMR endpoints (recent → ingest →
-    job status) and the indexed-facts query that returns the freshly
-    extracted rows.
+    Post-Phase-5: extract_documents returns no rows directly. The
+    supervisor then routes to evidence_retriever, which calls
+    get_lab_trend / get_observations to surface the just-ingested
+    AI-extracted FHIR Observation (with aiProvenance).
     """
     unindexed_doc = {
         "id": 11,
@@ -533,6 +533,7 @@ async def test_supervisor_routes_to_extractor_when_unindexed_lab_present() -> No
     }
 
     extractor_calls = {"count": 0}
+    evidence_calls = {"count": 0}
     job_polls = {"count": 0}
 
     def on_extractor(messages: list[dict[str, Any]]) -> LlmChatResult:
@@ -552,17 +553,32 @@ async def test_supervisor_routes_to_extractor_when_unindexed_lab_present() -> No
             )
         return _stop("extracted")
 
+    def on_evidence(messages: list[dict[str, Any]]) -> LlmChatResult:
+        evidence_calls["count"] += 1
+        if evidence_calls["count"] == 1:
+            return LlmChatResult(
+                content=None,
+                tool_calls=[
+                    LlmToolCall(
+                        tool_call_id="e1",
+                        name="get_lab_trend",
+                        arguments={"code_or_text": "LDL"},
+                    )
+                ],
+            )
+        return _stop("evidence done")
+
     envelope = {
         "narrative": "The recent lab report shows LDL of 132 [^1].",
         "facts": [
             {
-                "type": "document_fact",
+                "type": "lab_result",
                 "text": "LDL 132 mg/dL on 2026-05-01",
                 "verbatim_excerpts": ["132", "2026-05-01"],
                 "citations": [
                     {
-                        "resource_type": "IndexedDocumentFact",
-                        "resource_id": "fact-1",
+                        "resource_type": "Observation",
+                        "resource_id": "obs-ldl-1",
                     }
                 ],
                 "anchor": 1,
@@ -578,11 +594,13 @@ async def test_supervisor_routes_to_extractor_when_unindexed_lab_present() -> No
             state_holder["sup_calls"] += 1
             if state_holder["sup_calls"] == 1:
                 return _route("extractor")
+            if state_holder["sup_calls"] == 2:
+                return _route("evidence_retriever")
             return _route("finalize")
         if role == "extractor":
             return on_extractor(messages)
         if role == "evidence":
-            return _stop("evidence done")
+            return on_evidence(messages)
         return _envelope(envelope)
 
     def job_status_handler(request: httpx.Request) -> httpx.Response:
@@ -616,27 +634,36 @@ async def test_supervisor_routes_to_extractor_when_unindexed_lab_present() -> No
         mock.get(f"{API_BASE}/ai/documents/{PATIENT}/jobs/job-abc").mock(
             side_effect=job_status_handler,
         )
-        mock.get(f"{API_BASE}/ai/documents/indexed-facts/{PATIENT}/document").mock(
+        mock.get(f"{FHIR_BASE}/Observation").mock(
             return_value=httpx.Response(
                 200,
                 json={
-                    "facts": [
+                    "resourceType": "Bundle",
+                    "entry": [
                         {
-                            "resource_type": "IndexedDocumentFact",
-                            "resource_id": "fact-1",
-                            "patient_id": PATIENT,
-                            "last_updated": "2026-05-01T00:00:00+00:00",
-                            "fields": {
-                                "source": "indexed_document_fact",
-                                "fact_type": "lab_result",
-                                "document_uuid": "doc-uuid-11",
-                                "label": "LDL",
-                                "value_text": "132",
-                                "observed_on": "2026-05-01",
-                            },
-                            "verbatim_excerpt": "LDL 132 mg/dL",
+                            "resource": {
+                                "resourceType": "Observation",
+                                "id": "obs-ldl-1",
+                                "subject": {"reference": f"Patient/{PATIENT}"},
+                                "status": "final",
+                                "category": [
+                                    {"coding": [{"code": "laboratory"}]}
+                                ],
+                                "code": {"text": "LDL"},
+                                "effectiveDateTime": "2026-05-01",
+                                "valueQuantity": {"value": 132, "unit": "mg/dL"},
+                                "extension": [
+                                    {
+                                        "url": "https://openemr.org/fhir/StructureDefinition/ai-provenance",
+                                        "extension": [
+                                            {"url": "documentId", "valueString": "11"},
+                                            {"url": "snippet", "valueString": "LDL 132 mg/dL"},
+                                        ],
+                                    }
+                                ],
+                            }
                         }
-                    ]
+                    ],
                 },
             )
         )
@@ -653,10 +680,10 @@ async def test_supervisor_routes_to_extractor_when_unindexed_lab_present() -> No
             )
         )
 
-    assert final["supervisor_decisions"] == ["extractor", "finalize"]
+    assert final["supervisor_decisions"] == ["extractor", "evidence_retriever", "finalize"]
     assert final["extractor_runs"] == 1
     assert job_polls["count"] >= 1
-    assert any(f.citations[0].resource_id == "fact-1" for f in final["verified_facts"])
+    assert any(f.citations[0].resource_id == "obs-ldl-1" for f in final["verified_facts"])
     assert "132" in final["parsed_narrative"]
 
 

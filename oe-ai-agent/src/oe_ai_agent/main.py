@@ -477,16 +477,7 @@ def _merge_context(existing: list[TypedRow], incoming: list[TypedRow]) -> list[T
 
 
 def _document_context_metadata(prefix: str, rows: list[TypedRow]) -> dict[str, object]:
-    document_rows = [
-        row
-        for row in rows
-        if row.resource_type in {"DocumentReference", "IndexedDocumentFact"}
-    ]
-    document_sources = [
-        str(row.fields.get("source"))
-        for row in document_rows
-        if row.fields.get("source") is not None
-    ]
+    document_rows = [row for row in rows if row.resource_type == "DocumentReference"]
     document_types = sorted(
         {
             str(row.fields.get("document_type"))
@@ -498,10 +489,6 @@ def _document_context_metadata(prefix: str, rows: list[TypedRow]) -> dict[str, o
     return {
         f"{prefix}_count": len(rows),
         f"{prefix}_document_reference_count": len(document_rows),
-        f"{prefix}_indexed_manifest_count": document_sources.count(
-            "indexed_document_manifest"
-        ),
-        f"{prefix}_indexed_fact_count": document_sources.count("indexed_document_fact"),
         f"{prefix}_document_types": document_types,
     }
 

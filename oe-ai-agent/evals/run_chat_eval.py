@@ -85,22 +85,12 @@ _EMPTY_BUNDLE_RESOURCE_TYPES = (
 _TOOL_RULES: tuple[tuple[tuple[str, ...], str, dict[str, Any]], ...] = (
     (
         ("indexed lab", "uploaded lab", "external lab", "scanned lab", "pdf lab"),
-        "get_indexed_lab_results",
-        {},
+        "get_observations",
+        {"category": "laboratory"},
     ),
     (
         ("intake", "questionnaire", "patient reported", "uploaded form"),
-        "get_indexed_intake_answers",
-        {},
-    ),
-    (
-        ("document manifest", "which uploaded document", "uploaded documents"),
-        "search_indexed_documents",
-        {},
-    ),
-    (
-        ("document fact", "source evidence", "evidence source"),
-        "search_indexed_document_facts",
+        "get_questionnaire_responses",
         {},
     ),
     (
@@ -134,19 +124,11 @@ _TOOL_RULES: tuple[tuple[tuple[str, ...], str, dict[str, Any]], ...] = (
 _RESOURCE_TYPE_RULES: tuple[tuple[tuple[str, ...], frozenset[str]], ...] = (
     (
         ("indexed lab", "uploaded lab", "external lab", "scanned lab", "pdf lab"),
-        frozenset({"IndexedDocumentFact"}),
+        frozenset({"Observation", "DiagnosticReport"}),
     ),
     (
         ("intake", "questionnaire", "patient reported", "uploaded form"),
-        frozenset({"IndexedDocumentFact"}),
-    ),
-    (
-        ("document manifest", "which uploaded document", "uploaded documents"),
-        frozenset({"DocumentReference"}),
-    ),
-    (
-        ("document fact", "source evidence", "evidence source"),
-        frozenset({"IndexedDocumentFact", "DocumentReference"}),
+        frozenset({"QuestionnaireResponse"}),
     ),
     (
         ("stopped", "discontinued", "medication history", "past medication"),
@@ -160,7 +142,7 @@ _RESOURCE_TYPE_RULES: tuple[tuple[tuple[str, ...], frozenset[str]], ...] = (
     (("problem", "diagnose", "diagnosis", "diagnoses", "condition"), frozenset({"Condition"})),
     (
         ("a1c", "hemoglobin", "creatinine", "ldl", "lab trend"),
-        frozenset({"Observation", "DiagnosticReport", "IndexedDocumentFact"}),
+        frozenset({"Observation", "DiagnosticReport"}),
     ),
     (
         ("blood pressure", "heart rate", "vital", "weight", "bmi", "observation"),
@@ -172,7 +154,7 @@ _RESOURCE_TYPE_RULES: tuple[tuple[tuple[str, ...], frozenset[str]], ...] = (
     (("visit", "encounter"), frozenset({"Encounter"})),
     (
         ("note", "notes", "documentreference"),
-        frozenset({"DocumentReference", "IndexedDocumentFact"}),
+        frozenset({"DocumentReference"}),
     ),
     (("order", "orders", "servicerequest"), frozenset({"ServiceRequest"})),
     (("procedure", "surgery"), frozenset({"Procedure"})),
@@ -1118,12 +1100,6 @@ def _note_fact(
     anchor: int,
     question: str,
 ) -> dict[str, Any]:
-    if fields.get("source") == "indexed_document_manifest":
-        filename = _clean_string(fields.get("filename")) or "Indexed document"
-        summary = _clean_string(fields.get("document_summary"))
-        text = ": ".join(part for part in [filename, summary] if part)
-        return _fact("document_fact", text, [filename, summary], citation, anchor)
-
     description = _clean_string(fields.get("description")) or "Clinical note"
     date = _clean_string(fields.get("date"))
     text = f"{description} on {date}" if date else description
@@ -1206,44 +1182,39 @@ def _diagnostic_report_fact(
     return _fact("diagnostic_report", report, [report], citation, anchor)
 
 
-def _indexed_document_fact(
+def _questionnaire_response_fact(
     fields: dict[str, Any],
     citation: CitationPayload,
     anchor: int,
     question: str,
 ) -> dict[str, Any]:
     del question
-    fact_type = _clean_string(fields.get("fact_type")) or "document_fact"
-    label = _clean_string(fields.get("label")) or _clean_string(fields.get("question"))
-    value = _clean_string(fields.get("value")) or _clean_string(fields.get("answer"))
-    unit = _clean_string(fields.get("unit"))
-    observed = _clean_string(fields.get("observed_on")) or _clean_string(fields.get("date"))
-    excerpt = _clean_string(fields.get("source_excerpt")) or _clean_string(fields.get("snippet"))
-    value_text = " ".join(part for part in [value, unit] if part)
-    if fact_type == "lab_result":
-        text = " ".join(
-            part
-            for part in [label or "Lab result", value_text, f"on {observed}" if observed else ""]
-            if part
-        )
-        if excerpt and excerpt not in text:
-            text = f"{text}; {excerpt}"
-    elif fact_type == "intake_answer":
-        text = ": ".join(part for part in [label or "Intake answer", value] if part)
-    elif fact_type == "note":
-        fact_type = "note"
-        text = excerpt or label or "Indexed note fact"
-    else:
-        text = excerpt or " ".join(part for part in [label, value_text, observed] if part)
-        if fact_type not in {"observation", "document_fact"}:
-            fact_type = "document_fact"
-    return _fact(
-        fact_type,
-        text,
-        [label, value, unit, observed, excerpt],
-        citation,
-        anchor,
-    )
+    items = fields.get("item")
+    label: str | None = None
+    answer: str | None = None
+    if isinstance(items, list):
+        for entry in items:
+            if not isinstance(entry, dict):
+                continue
+            label = _clean_string(entry.get("text")) or label
+            answers = entry.get("answer")
+            if isinstance(answers, list) and answers:
+                first = answers[0]
+                if isinstance(first, dict):
+                    for key in (
+                        "valueString",
+                        "valueBoolean",
+                        "valueInteger",
+                        "valueDecimal",
+                        "valueDate",
+                    ):
+                        if key in first:
+                            answer = str(first[key])
+                            break
+            if label and answer:
+                break
+    text = ": ".join(part for part in [label or "Intake answer", answer] if part)
+    return _fact("intake_answer", text, [label, answer], citation, anchor)
 
 
 _MOCK_FACT_BUILDERS: dict[str, MockFactBuilder] = {
@@ -1256,11 +1227,11 @@ _MOCK_FACT_BUILDERS: dict[str, MockFactBuilder] = {
     "Encounter": _encounter_fact,
     "Goal": _care_plan_fact,
     "Immunization": _immunization_fact,
-    "IndexedDocumentFact": _indexed_document_fact,
     "MedicationRequest": _medication_fact,
     "Observation": _observation_fact,
     "Patient": _demographics_fact,
     "Procedure": _procedure_fact,
+    "QuestionnaireResponse": _questionnaire_response_fact,
     "ServiceRequest": _order_fact,
 }
 

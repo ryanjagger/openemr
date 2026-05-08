@@ -1,8 +1,8 @@
 {
-  "label": "indexed intake smoking answer",
+  "label": "AI-extracted intake answer (smoking status)",
   "turns": [
     {
-      "label": "indexed intake smoking answer",
+      "label": "AI-extracted intake answer (smoking status)",
       "user": "What did the uploaded intake form say about smoking?",
       "expectations": {
         "min_verified_facts": 1,
@@ -10,10 +10,10 @@
           "intake_answer"
         ],
         "expected_citations": [
-          "idx-intake-smoking"
+          "qr-intake-smoking"
         ],
         "expected_tools_called": [
-          "get_indexed_intake_answers"
+          "get_questionnaire_responses"
         ],
         "facts_must_contain": [
           "Smoking status",
@@ -22,27 +22,46 @@
       }
     }
   ],
-  "fhir": {},
-  "api": {
-    "GET /ai/documents/indexed-facts/eval-patient-fixture/document": {
-      "facts": [
+  "fhir": {
+    "QuestionnaireResponse": {
+      "resourceType": "Bundle",
+      "entry": [
         {
-          "resource_type": "IndexedDocumentFact",
-          "resource_id": "idx-intake-smoking",
-          "patient_id": "eval-patient-fixture",
-          "last_updated": "{{TODAY-14D}}T00:00:00+00:00",
-          "fields": {
-            "source": "indexed_document_fact",
-            "document_uuid": "doc-indexed-1",
-            "document_type": "intake_form",
-            "fact_type": "intake_answer",
-            "label": "Smoking status",
-            "value": "Former smoker",
-            "unit": null,
-            "observed_on": "{{TODAY-14D}}",
-            "source_excerpt": "Smoking status: Former smoker"
-          },
-          "verbatim_excerpt": "Smoking status: Former smoker"
+          "resource": {
+            "resourceType": "QuestionnaireResponse",
+            "id": "qr-intake-smoking",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "completed",
+            "questionnaire": "Questionnaire/intake-q-1",
+            "authored": "{{TODAY-14D}}T00:00:00+00:00",
+            "meta": {
+              "lastUpdated": "{{TODAY-14D}}T00:00:00+00:00"
+            },
+            "item": [
+              {
+                "linkId": "q1",
+                "text": "Smoking status",
+                "answer": [
+                  {"valueString": "Former smoker"}
+                ],
+                "extension": [
+                  {
+                    "url": "https://openemr.org/fhir/StructureDefinition/ai-provenance",
+                    "extension": [
+                      {"url": "documentId", "valueString": "601"},
+                      {"url": "extractionJobId", "valueString": "42"},
+                      {"url": "page", "valueInteger": 1},
+                      {"url": "snippet", "valueString": "Smoking status: Former smoker"},
+                      {"url": "confidence", "valueDecimal": 0.94},
+                      {"url": "model", "valueString": "anthropic/claude-opus-4-7"}
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
         }
       ]
     }

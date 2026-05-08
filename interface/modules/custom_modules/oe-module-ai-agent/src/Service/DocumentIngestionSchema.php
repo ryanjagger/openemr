@@ -85,46 +85,6 @@ CREATE TABLE IF NOT EXISTS `ai_document_ingestion_documents` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 SQL,
             <<<'SQL'
-CREATE TABLE IF NOT EXISTS `ai_document_facts` (
-    `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `patient_id`     BIGINT UNSIGNED NOT NULL,
-    `document_id`    BIGINT UNSIGNED NOT NULL,
-    `document_uuid`  CHAR(36)        NOT NULL,
-    `document_type`  ENUM('lab_report', 'intake_form') NOT NULL,
-    `fact_type`      VARCHAR(64)     NOT NULL,
-    `label`          VARCHAR(255)    NULL,
-    `value_text`     TEXT            NULL,
-    `value_numeric`  DECIMAL(18,6)   NULL,
-    `unit`           VARCHAR(64)     NULL,
-    `observed_on`    DATE            NULL,
-    `metadata_json`  JSON            NULL,
-    `created_at`     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    INDEX `idx_ai_doc_facts_patient_created` (`patient_id`, `created_at`),
-    INDEX `idx_ai_doc_facts_document` (`document_id`),
-    INDEX `idx_ai_doc_facts_doc_uuid` (`document_uuid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-SQL,
-            <<<'SQL'
-CREATE TABLE IF NOT EXISTS `ai_document_source_snippets` (
-    `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `fact_id`       BIGINT UNSIGNED NULL,
-    `patient_id`    BIGINT UNSIGNED NOT NULL,
-    `document_id`   BIGINT UNSIGNED NOT NULL,
-    `document_uuid` CHAR(36)        NOT NULL,
-    `page_number`   INT UNSIGNED    NULL,
-    `snippet_text`  TEXT            NOT NULL,
-    `bbox_json`     JSON            NULL,
-    `created_at`    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    INDEX `idx_ai_doc_snippets_fact` (`fact_id`),
-    INDEX `idx_ai_doc_snippets_document` (`document_id`),
-    CONSTRAINT `fk_ai_doc_snippets_fact`
-        FOREIGN KEY (`fact_id`) REFERENCES `ai_document_facts` (`id`)
-        ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-SQL,
-            <<<'SQL'
 INSERT INTO `background_services` (
     `name`,
     `title`,
@@ -151,6 +111,76 @@ ON DUPLICATE KEY UPDATE
     `function` = VALUES(`function`),
     `require_once` = VALUES(`require_once`),
     `execute_interval` = VALUES(`execute_interval`)
+SQL,
+            <<<'SQL'
+INSERT INTO `list_options` (
+    `list_id`, `option_id`, `title`, `seq`, `is_default`, `activity`
+) VALUES (
+    'proc_res_status', 'ai_extracted', 'AI Extracted', 70, 0, 1
+)
+ON DUPLICATE KEY UPDATE
+    `title`    = VALUES(`title`),
+    `seq`      = VALUES(`seq`),
+    `activity` = VALUES(`activity`)
+SQL,
+            <<<'SQL'
+INSERT INTO `procedure_providers` (
+    `name`, `send_app_id`, `recv_app_id`, `direction`, `protocol`, `active`, `notes`
+)
+SELECT
+    'AI Document Extraction',
+    'OE-AI-INGEST',
+    'OPENEMR',
+    'R',
+    'DL',
+    1,
+    'Synthetic provider used by oe-module-ai-agent to ingest AI-extracted lab results via the HL7 receive path. Do not edit.'
+WHERE NOT EXISTS (
+    SELECT 1 FROM `procedure_providers` WHERE `send_app_id` = 'OE-AI-INGEST'
+)
+SQL,
+            <<<'SQL'
+CREATE TABLE IF NOT EXISTS `ai_result_provenance` (
+    `id`                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `procedure_result_id`   BIGINT UNSIGNED NOT NULL,
+    `document_id`           BIGINT UNSIGNED NOT NULL,
+    `extraction_job_id`     BIGINT UNSIGNED NOT NULL,
+    `page_number`           INT UNSIGNED    NULL,
+    `bbox_json`             JSON            NULL,
+    `snippet_text`          TEXT            NULL,
+    `extraction_confidence` DECIMAL(4,3)    NULL,
+    `extraction_model`      VARCHAR(128)    NULL,
+    `extracted_at`          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `idx_ai_result_prov_result` (`procedure_result_id`),
+    INDEX `idx_ai_result_prov_document` (`document_id`),
+    INDEX `idx_ai_result_prov_job` (`extraction_job_id`),
+    CONSTRAINT `fk_ai_result_prov_job`
+        FOREIGN KEY (`extraction_job_id`) REFERENCES `ai_document_ingestion_jobs` (`id`)
+        ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+SQL,
+            <<<'SQL'
+CREATE TABLE IF NOT EXISTS `ai_questionnaire_response_provenance` (
+    `id`                          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `questionnaire_response_id`   BIGINT UNSIGNED NOT NULL,
+    `link_id`                     VARCHAR(255)    NOT NULL,
+    `document_id`                 BIGINT UNSIGNED NOT NULL,
+    `extraction_job_id`           BIGINT UNSIGNED NOT NULL,
+    `page_number`                 INT UNSIGNED    NULL,
+    `bbox_json`                   JSON            NULL,
+    `snippet_text`                TEXT            NULL,
+    `extraction_confidence`       DECIMAL(4,3)    NULL,
+    `extraction_model`            VARCHAR(128)    NULL,
+    `extracted_at`                TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `idx_ai_qr_prov_resp_link` (`questionnaire_response_id`, `link_id`),
+    INDEX `idx_ai_qr_prov_document` (`document_id`),
+    INDEX `idx_ai_qr_prov_job` (`extraction_job_id`),
+    CONSTRAINT `fk_ai_qr_prov_job`
+        FOREIGN KEY (`extraction_job_id`) REFERENCES `ai_document_ingestion_jobs` (`id`)
+        ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 SQL,
         ];
     }

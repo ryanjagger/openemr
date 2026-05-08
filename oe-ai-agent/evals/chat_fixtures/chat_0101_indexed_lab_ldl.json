@@ -1,8 +1,8 @@
 {
-  "label": "indexed lab report LDL fact",
+  "label": "AI-extracted lab from uploaded PDF (LDL)",
   "turns": [
     {
-      "label": "indexed lab report LDL fact",
+      "label": "AI-extracted lab from uploaded PDF (LDL)",
       "user": "What does the uploaded lab report say about LDL?",
       "expectations": {
         "min_verified_facts": 1,
@@ -10,39 +10,65 @@
           "lab_result"
         ],
         "expected_citations": [
-          "idx-lab-ldl"
+          "obs-ai-ldl"
         ],
         "expected_tools_called": [
-          "get_indexed_lab_results"
+          "get_observations"
         ],
         "facts_must_contain": [
-          "LDL cholesterol",
+          "LDL",
           "142"
         ]
       }
     }
   ],
-  "fhir": {},
-  "api": {
-    "GET /ai/documents/indexed-facts/eval-patient-fixture/document": {
-      "facts": [
+  "fhir": {
+    "Observation": {
+      "resourceType": "Bundle",
+      "entry": [
         {
-          "resource_type": "IndexedDocumentFact",
-          "resource_id": "idx-lab-ldl",
-          "patient_id": "eval-patient-fixture",
-          "last_updated": "{{TODAY-21D}}T00:00:00+00:00",
-          "fields": {
-            "source": "indexed_document_fact",
-            "document_uuid": "doc-indexed-1",
-            "document_type": "lab_report",
-            "fact_type": "lab_result",
-            "label": "LDL cholesterol",
-            "value": "142",
-            "unit": "mg/dL",
-            "observed_on": "{{TODAY-21D}}",
-            "source_excerpt": "LDL cholesterol 142 mg/dL {{TODAY-21D}}"
-          },
-          "verbatim_excerpt": "LDL cholesterol 142 mg/dL {{TODAY-21D}}"
+          "resource": {
+            "resourceType": "Observation",
+            "id": "obs-ai-ldl",
+            "subject": {
+              "reference": "Patient/eval-patient-fixture"
+            },
+            "status": "final",
+            "category": [
+              {
+                "coding": [
+                  {
+                    "code": "laboratory",
+                    "display": "laboratory"
+                  }
+                ]
+              }
+            ],
+            "code": {
+              "text": "LDL Cholesterol"
+            },
+            "effectiveDateTime": "{{TODAY-21D}}",
+            "meta": {
+              "lastUpdated": "{{TODAY-21D}}T00:00:00+00:00"
+            },
+            "valueQuantity": {
+              "value": 142,
+              "unit": "mg/dL"
+            },
+            "extension": [
+              {
+                "url": "https://openemr.org/fhir/StructureDefinition/ai-provenance",
+                "extension": [
+                  {"url": "documentId", "valueString": "501"},
+                  {"url": "extractionJobId", "valueString": "37"},
+                  {"url": "page", "valueInteger": 1},
+                  {"url": "snippet", "valueString": "LDL Cholesterol 142 mg/dL"},
+                  {"url": "confidence", "valueDecimal": 0.92},
+                  {"url": "model", "valueString": "anthropic/claude-opus-4-7"}
+                ]
+              }
+            ]
+          }
         }
       ]
     }

@@ -84,19 +84,6 @@ final class Bootstrap
                 return DocumentIngestionController::default()->job($pid, $jobId, $request);
             },
         );
-        $event->addToRouteMap(
-            'GET /api/ai/documents/indexed/:pid/document',
-            function (string $pid, HttpRestRequest $request): JsonResponse {
-                return DocumentIngestionController::default()->indexed($pid, $request);
-            },
-        );
-        $event->addToRouteMap(
-            'GET /api/ai/documents/indexed-facts/:pid/document',
-            function (string $pid, HttpRestRequest $request): JsonResponse {
-                return DocumentIngestionController::default()->indexedFacts($pid, $request);
-            },
-        );
-
         return $event;
     }
 

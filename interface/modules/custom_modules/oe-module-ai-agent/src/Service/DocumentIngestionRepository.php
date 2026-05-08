@@ -1,7 +1,15 @@
 <?php
 
 /**
- * Persistence for AI document ingestion jobs and extracted source facts.
+ * Persistence for AI document ingestion jobs.
+ *
+ * Post-Phase-5: AI-extracted facts no longer live in the shadow
+ * ai_document_facts / ai_document_source_snippets tables. Lab results land
+ * in procedure_result (see AiLabIngestionService) and intake answers land
+ * in questionnaire_response (see AiIntakeIngestionService). This repository
+ * is now strictly for managing the ingestion-job lifecycle (queue, claim,
+ * status, completion) plus the discovery of unindexed documents the user
+ * may want to extract.
  *
  * @package   OpenEMR
  * @link      https://www.open-emr.org
@@ -31,9 +39,6 @@ final class DocumentIngestionRepository
         'lab_report',
         'intake_form',
     ];
-
-    private const MAX_CONTEXT_FACTS_PER_DOCUMENT = 80;
-    private const MAX_CONTEXT_SNIPPETS_PER_FACT = 3;
 
     private readonly DocumentIngestionSchema $schema;
 
@@ -280,6 +285,15 @@ final class DocumentIngestionRepository
         );
     }
 
+    public function markDocumentCompleted(int $jobDocumentId, ?string $modelId): void
+    {
+        QueryUtils::sqlStatementThrowException(
+            'UPDATE `ai_document_ingestion_documents` '
+            . 'SET `status` = "completed", `model_id` = ?, `error_detail` = NULL, `updated_at` = NOW() WHERE `id` = ?',
+            [$modelId, $jobDocumentId],
+        );
+    }
+
     public function markJobFailed(int $jobId, string $errorDetail): void
     {
         QueryUtils::sqlStatementThrowException(
@@ -287,96 +301,6 @@ final class DocumentIngestionRepository
             . 'SET `status` = "failed", `error_detail` = ?, `completed_at` = NOW(), `updated_at` = NOW() '
             . 'WHERE `id` = ?',
             [substr($errorDetail, 0, 4000), $jobId],
-        );
-    }
-
-    /**
-     * @param array<string, mixed> $extraction
-     */
-    public function persistExtraction(array $jobDocument, array $extraction): void
-    {
-        $patientId = (int) $jobDocument['patient_id'];
-        $documentId = (int) $jobDocument['document_id'];
-        $documentUuid = (string) $jobDocument['document_uuid'];
-        $documentType = (string) $jobDocument['document_type'];
-
-        QueryUtils::sqlStatementThrowException(
-            'DELETE snippets FROM `ai_document_source_snippets` snippets '
-            . 'LEFT JOIN `ai_document_facts` facts ON facts.id = snippets.fact_id '
-            . 'WHERE snippets.patient_id = ? AND snippets.document_id = ?',
-            [$patientId, $documentId],
-        );
-        QueryUtils::sqlStatementThrowException(
-            'DELETE FROM `ai_document_facts` WHERE `patient_id` = ? AND `document_id` = ?',
-            [$patientId, $documentId],
-        );
-
-        $facts = $extraction['facts'] ?? [];
-        if (!is_array($facts)) {
-            $facts = [];
-        }
-        foreach ($facts as $fact) {
-            if (!is_array($fact)) {
-                continue;
-            }
-            /** @var array<string, mixed> $fact */
-            $metadata = $this->factMetadata($fact, $extraction);
-            $factId = QueryUtils::sqlInsert(
-                'INSERT INTO `ai_document_facts` '
-                . '(`patient_id`, `document_id`, `document_uuid`, `document_type`, `fact_type`, '
-                . '`label`, `value_text`, `value_numeric`, `unit`, `observed_on`, `metadata_json`) '
-                . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [
-                    $patientId,
-                    $documentId,
-                    $documentUuid,
-                    $documentType,
-                    $this->stringValue($fact['fact_type'] ?? 'document_fact', 'document_fact'),
-                    $this->nullableString($fact['label'] ?? null),
-                    $this->nullableString($fact['value_text'] ?? $fact['answer'] ?? null),
-                    $this->nullableNumeric($fact['value_numeric'] ?? null),
-                    $this->nullableString($fact['unit'] ?? null),
-                    $this->nullableDate($fact['observed_on'] ?? null),
-                    json_encode($metadata, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-                ],
-            );
-
-            $snippets = $fact['source_snippets'] ?? [];
-            if (!is_array($snippets)) {
-                continue;
-            }
-            foreach ($snippets as $snippet) {
-                if (!is_array($snippet)) {
-                    continue;
-                }
-                $text = $this->nullableString($snippet['text'] ?? null);
-                if ($text === null) {
-                    continue;
-                }
-                QueryUtils::sqlInsert(
-                    'INSERT INTO `ai_document_source_snippets` '
-                    . '(`fact_id`, `patient_id`, `document_id`, `document_uuid`, `page_number`, `snippet_text`, `bbox_json`) '
-                    . 'VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [
-                        $factId,
-                        $patientId,
-                        $documentId,
-                        $documentUuid,
-                        $this->nullableInt($snippet['page_number'] ?? null),
-                        $text,
-                        $this->jsonOrNull($snippet['bbox'] ?? null),
-                    ],
-                );
-            }
-        }
-
-        QueryUtils::sqlStatementThrowException(
-            'UPDATE `ai_document_ingestion_documents` '
-            . 'SET `status` = "completed", `model_id` = ?, `error_detail` = NULL, `updated_at` = NOW() WHERE `id` = ?',
-            [
-                $this->nullableString($extraction['model_id'] ?? null),
-                $jobDocument['id'],
-            ],
         );
     }
 
@@ -421,197 +345,6 @@ final class DocumentIngestionRepository
     }
 
     /**
-     * @return list<array<string, mixed>>
-     */
-    public function documentContextRows(int $patientId, string $patientUuid, int $limit = 12): array
-    {
-        $this->schema->ensureInstalled();
-
-        $documents = QueryUtils::fetchRecords(
-            'SELECT `document_id`, `document_uuid`, `document_type`, `filename`, `mimetype`, '
-            . 'MAX(`updated_at`) AS `last_updated` '
-            . 'FROM `ai_document_ingestion_documents` '
-            . 'WHERE `patient_id` = ? AND `status` = "completed" '
-            . 'GROUP BY `document_id`, `document_uuid`, `document_type`, `filename`, `mimetype` '
-            . 'ORDER BY MAX(`updated_at`) DESC LIMIT ' . max(1, $limit),
-            [$patientId],
-            true,
-        );
-
-        $rows = [];
-        foreach ($documents as $document) {
-            $facts = $this->factsForDocument((int) $document['document_id']);
-            if ($facts === []) {
-                continue;
-            }
-            $firstSnippet = $this->firstSnippet($facts);
-            $rows[] = [
-                'resource_type' => 'DocumentReference',
-                'resource_id' => $document['document_uuid'],
-                'patient_id' => $patientUuid,
-                'last_updated' => $this->isoDateTime($document['last_updated']),
-                'fields' => [
-                    'source' => 'indexed_document',
-                    'document_type' => $document['document_type'],
-                    'filename' => $document['filename'],
-                    'mimetype' => $document['mimetype'],
-                    'facts' => $facts,
-                ],
-                'verbatim_excerpt' => $firstSnippet,
-            ];
-        }
-
-        return $rows;
-    }
-
-    /**
-     * @return list<array<string, mixed>>
-     */
-    public function documentManifestContextRows(int $patientId, string $patientUuid, int $limit = 12): array
-    {
-        return array_map(
-            fn (array $document): array => $this->manifestDocumentReferenceRow($document, $patientUuid),
-            $this->indexedDocumentManifests($patientId, $limit),
-        );
-    }
-
-    /**
-     * @return list<array<string, mixed>>
-     */
-    public function indexedDocumentManifests(
-        int $patientId,
-        int $limit = 25,
-        ?string $documentType = null,
-        ?string $query = null,
-    ): array {
-        $this->schema->ensureInstalled();
-
-        $conditions = [
-            'did.patient_id = ?',
-            'did.status = "completed"',
-            'docs.deleted = 0',
-        ];
-        $binds = [$patientId, $patientId];
-        $type = $this->nullableString($documentType);
-        if ($type !== null) {
-            $conditions[] = 'did.document_type = ?';
-            $binds[] = $type;
-        }
-        $text = $this->nullableString($query);
-        if ($text !== null) {
-            $like = '%' . $text . '%';
-            $conditions[] = '(did.filename LIKE ? OR did.document_uuid LIKE ? OR did.document_type LIKE ?)';
-            $binds[] = $like;
-            $binds[] = $like;
-            $binds[] = $like;
-        }
-
-        $documents = QueryUtils::fetchRecords(
-            'SELECT did.`document_id`, did.`document_uuid`, did.`document_type`, did.`filename`, '
-            . 'did.`mimetype`, did.`docdate`, did.`model_id`, did.`updated_at` AS `last_updated` '
-            . 'FROM `ai_document_ingestion_documents` did '
-            . 'JOIN ('
-            . '  SELECT `document_id`, MAX(`id`) AS `latest_id` '
-            . '  FROM `ai_document_ingestion_documents` '
-            . '  WHERE `patient_id` = ? AND `status` = "completed" '
-            . '  GROUP BY `document_id`'
-            . ') latest ON latest.latest_id = did.id '
-            . 'JOIN `documents` docs ON docs.id = did.document_id '
-            . 'WHERE ' . implode(' AND ', $conditions) . ' '
-            . 'ORDER BY did.`updated_at` DESC LIMIT ' . $this->boundedLimit($limit, 25, 100),
-            $binds,
-            true,
-        );
-
-        $manifests = [];
-        foreach ($documents as $document) {
-            $summary = $this->factSummaryForDocument((int) $document['document_id']);
-            if (($summary['fact_count'] ?? 0) <= 0) {
-                continue;
-            }
-            $manifests[] = [
-                'document_id' => (int) $document['document_id'],
-                'document_uuid' => (string) $document['document_uuid'],
-                'document_type' => (string) $document['document_type'],
-                'filename' => (string) $document['filename'],
-                'mimetype' => (string) $document['mimetype'],
-                'docdate' => $this->nullableDate($document['docdate'] ?? null),
-                'model_id' => $this->nullableString($document['model_id'] ?? null),
-                'last_updated' => $this->isoDateTime($document['last_updated'] ?? null),
-                'fact_count' => (int) $summary['fact_count'],
-                'document_summary' => $summary['document_summary'] ?? null,
-                'extraction_confidence' => $summary['extraction_confidence'] ?? null,
-            ];
-        }
-
-        return $manifests;
-    }
-
-    /**
-     * @param array<string, mixed> $filters
-     *
-     * @return list<array<string, mixed>>
-     */
-    public function searchIndexedDocumentFacts(
-        int $patientId,
-        string $patientUuid,
-        array $filters,
-    ): array {
-        $this->schema->ensureInstalled();
-
-        $conditions = [
-            'facts.patient_id = ?',
-            'did.status = "completed"',
-            'docs.deleted = 0',
-        ];
-        $binds = [$patientId, $patientId];
-        $this->appendStringFilter($conditions, $binds, 'facts.document_uuid', $filters['document_uuid'] ?? null);
-        $this->appendStringFilter($conditions, $binds, 'facts.document_type', $filters['document_type'] ?? null);
-        $this->appendStringFilter($conditions, $binds, 'facts.fact_type', $filters['fact_type'] ?? null);
-        $this->appendDateFilter($conditions, $binds, 'facts.observed_on', '>=', $filters['observed_on_from'] ?? null);
-        $this->appendDateFilter($conditions, $binds, 'facts.observed_on', '<=', $filters['observed_on_to'] ?? null);
-
-        $query = $this->nullableString($filters['query'] ?? null);
-        if ($query !== null) {
-            $like = '%' . $query . '%';
-            $conditions[] = '('
-                . 'facts.label LIKE ? OR facts.value_text LIKE ? OR facts.metadata_json LIKE ? '
-                . 'OR EXISTS ('
-                . '  SELECT 1 FROM `ai_document_source_snippets` snippets '
-                . '  WHERE snippets.fact_id = facts.id AND snippets.snippet_text LIKE ?'
-                . ')'
-                . ')';
-            $binds[] = $like;
-            $binds[] = $like;
-            $binds[] = $like;
-            $binds[] = $like;
-        }
-
-        $facts = QueryUtils::fetchRecords(
-            'SELECT facts.*, did.`filename`, did.`mimetype`, did.`docdate`, did.`updated_at` AS `document_updated_at` '
-            . 'FROM `ai_document_facts` facts '
-            . 'JOIN ('
-            . '  SELECT `document_id`, MAX(`id`) AS `latest_id` '
-            . '  FROM `ai_document_ingestion_documents` '
-            . '  WHERE `patient_id` = ? AND `status` = "completed" '
-            . '  GROUP BY `document_id`'
-            . ') latest ON latest.document_id = facts.document_id '
-            . 'JOIN `ai_document_ingestion_documents` did ON did.id = latest.latest_id '
-            . 'JOIN `documents` docs ON docs.id = facts.document_id '
-            . 'WHERE ' . implode(' AND ', $conditions) . ' '
-            . 'ORDER BY COALESCE(facts.`observed_on`, DATE(did.`updated_at`)) DESC, facts.`id` ASC '
-            . 'LIMIT ' . $this->boundedLimit($filters['limit'] ?? null, 50, 100),
-            $binds,
-            true,
-        );
-
-        return array_map(
-            fn (array $fact): array => $this->indexedFactDocumentReferenceRow($fact, $patientUuid),
-            $facts,
-        );
-    }
-
-    /**
      * @return array<int, array<string, mixed>>
      */
     private function loadEligibleDocumentsById(int $patientId, string $username): array
@@ -650,6 +383,13 @@ final class DocumentIngestionRepository
     }
 
     /**
+     * Decorates each candidate document with whether it has already been
+     * ingested for this patient. After Phase 5 the source of truth is just
+     * ``ai_document_ingestion_documents.status = 'completed'`` — the
+     * downstream native rows (procedure_result / questionnaire_response)
+     * are queryable through their own FHIR endpoints, so the chat does not
+     * need a fact count or document-type echo here.
+     *
      * @param list<array<string, mixed>> $documents
      *
      * @return list<array<string, mixed>>
@@ -666,19 +406,13 @@ final class DocumentIngestionRepository
         )));
         $placeholders = implode(', ', array_fill(0, count($documentIds), '?'));
         $rows = QueryUtils::fetchRecords(
-            'SELECT facts.`document_id`, facts.`document_type`, COUNT(*) AS `fact_count`, '
+            'SELECT did.`document_id`, did.`document_type`, '
             . 'MAX(did.`updated_at`) AS `indexed_at` '
-            . 'FROM `ai_document_facts` facts '
-            . 'JOIN ('
-            . '  SELECT `document_id`, MAX(`id`) AS `latest_id` '
-            . '  FROM `ai_document_ingestion_documents` '
-            . '  WHERE `patient_id` = ? AND `status` = "completed" '
-            . '  GROUP BY `document_id`'
-            . ') latest ON latest.document_id = facts.document_id '
-            . 'JOIN `ai_document_ingestion_documents` did ON did.id = latest.latest_id '
-            . 'WHERE facts.`patient_id` = ? AND facts.`document_id` IN (' . $placeholders . ') '
-            . 'GROUP BY facts.`document_id`, facts.`document_type`',
-            [$patientId, $patientId, ...$documentIds],
+            . 'FROM `ai_document_ingestion_documents` did '
+            . 'WHERE did.`patient_id` = ? AND did.`status` = "completed" '
+            . 'AND did.`document_id` IN (' . $placeholders . ') '
+            . 'GROUP BY did.`document_id`, did.`document_type`',
+            [$patientId, ...$documentIds],
             true,
         );
 
@@ -686,272 +420,18 @@ final class DocumentIngestionRepository
         foreach ($rows as $row) {
             $statusByDocumentId[(int) $row['document_id']] = [
                 'document_type' => $this->nullableString($row['document_type'] ?? null),
-                'fact_count' => (int) ($row['fact_count'] ?? 0),
                 'indexed_at' => $this->isoDateTime($row['indexed_at'] ?? null),
             ];
         }
 
         return array_map(function (array $document) use ($statusByDocumentId): array {
             $status = $statusByDocumentId[(int) $document['id']] ?? null;
-            $document['already_ingested'] = $status !== null && (int) $status['fact_count'] > 0;
+            $document['already_ingested'] = $status !== null;
             $document['indexed_document_type'] = $status['document_type'] ?? null;
-            $document['indexed_fact_count'] = $status['fact_count'] ?? 0;
             $document['indexed_at'] = $status['indexed_at'] ?? null;
 
             return $document;
         }, $documents);
-    }
-
-    /**
-     * @return list<array<string, mixed>>
-     */
-    private function factsForDocument(int $documentId): array
-    {
-        $facts = QueryUtils::fetchRecords(
-            'SELECT * FROM `ai_document_facts` WHERE `document_id` = ? ORDER BY `id` ASC '
-            . 'LIMIT ' . self::MAX_CONTEXT_FACTS_PER_DOCUMENT,
-            [$documentId],
-            true,
-        );
-
-        return array_map(function (array $fact): array {
-            $snippets = QueryUtils::fetchRecords(
-                'SELECT `page_number`, `snippet_text`, `bbox_json` '
-                . 'FROM `ai_document_source_snippets` WHERE `fact_id` = ? ORDER BY `id` ASC '
-                . 'LIMIT ' . self::MAX_CONTEXT_SNIPPETS_PER_FACT,
-                [$fact['id']],
-                true,
-            );
-            return [
-                'fact_type' => $fact['fact_type'],
-                'label' => $fact['label'],
-                'value_text' => $fact['value_text'],
-                'value_numeric' => $fact['value_numeric'],
-                'unit' => $fact['unit'],
-                'observed_on' => $fact['observed_on'],
-                'metadata' => $this->decodeJson($fact['metadata_json'] ?? null),
-                'source_snippets' => array_map(
-                    fn (array $snippet): array => [
-                        'page_number' => $this->nullableInt($snippet['page_number'] ?? null),
-                        'text' => $snippet['snippet_text'],
-                        'bbox' => $this->decodeJson($snippet['bbox_json'] ?? null),
-                    ],
-                    $snippets,
-                ),
-            ];
-        }, $facts);
-    }
-
-    /**
-     * @param list<array<string, mixed>> $facts
-     */
-    private function firstSnippet(array $facts): ?string
-    {
-        foreach ($facts as $fact) {
-            $snippets = $fact['source_snippets'] ?? [];
-            if (!is_array($snippets)) {
-                continue;
-            }
-            foreach ($snippets as $snippet) {
-                if (is_array($snippet) && isset($snippet['text']) && is_string($snippet['text'])) {
-                    return substr($snippet['text'], 0, 500);
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * @param array<string, mixed> $document
-     *
-     * @return array<string, mixed>
-     */
-    private function manifestDocumentReferenceRow(array $document, string $patientUuid): array
-    {
-        return [
-            'resource_type' => 'DocumentReference',
-            'resource_id' => $document['document_uuid'],
-            'patient_id' => $patientUuid,
-            'last_updated' => $document['last_updated'],
-            'fields' => [
-                'source' => 'indexed_document_manifest',
-                'document_uuid' => $document['document_uuid'],
-                'document_type' => $document['document_type'],
-                'filename' => $document['filename'],
-                'mimetype' => $document['mimetype'],
-                'docdate' => $document['docdate'],
-                'model_id' => $document['model_id'],
-                'fact_count' => $document['fact_count'],
-                'document_summary' => $document['document_summary'],
-                'extraction_confidence' => $document['extraction_confidence'],
-            ],
-            'verbatim_excerpt' => $this->nullableString($document['document_summary'] ?? null),
-        ];
-    }
-
-    /**
-     * @param array<string, mixed> $fact
-     *
-     * @return array<string, mixed>
-     */
-    private function indexedFactDocumentReferenceRow(array $fact, string $patientUuid): array
-    {
-        $snippets = $this->sourceSnippetsForFact((int) $fact['id'], self::MAX_CONTEXT_SNIPPETS_PER_FACT);
-
-        return [
-            'resource_type' => 'IndexedDocumentFact',
-            'resource_id' => (string) $fact['document_uuid'] . '#fact-' . (string) $fact['id'],
-            'patient_id' => $patientUuid,
-            'last_updated' => $this->isoDateTime($fact['document_updated_at'] ?? $fact['created_at'] ?? null),
-            'fields' => [
-                'source' => 'indexed_document_fact',
-                'document_uuid' => $fact['document_uuid'],
-                'document_id' => (int) $fact['document_id'],
-                'document_type' => $fact['document_type'],
-                'filename' => $fact['filename'],
-                'mimetype' => $fact['mimetype'],
-                'docdate' => $this->nullableDate($fact['docdate'] ?? null),
-                'fact_id' => (int) $fact['id'],
-                'fact_type' => $fact['fact_type'],
-                'label' => $fact['label'],
-                'value_text' => $fact['value_text'],
-                'value_numeric' => $fact['value_numeric'],
-                'unit' => $fact['unit'],
-                'observed_on' => $this->nullableDate($fact['observed_on'] ?? null),
-                'metadata' => $this->decodeJson($fact['metadata_json'] ?? null),
-                'source_snippets' => $snippets,
-            ],
-            'verbatim_excerpt' => $this->firstSnippetText($snippets),
-        ];
-    }
-
-    /**
-     * @return array{fact_count: int, document_summary: string|null, extraction_confidence: float|null}
-     */
-    private function factSummaryForDocument(int $documentId): array
-    {
-        $countRows = QueryUtils::fetchRecords(
-            'SELECT COUNT(*) AS `fact_count` FROM `ai_document_facts` WHERE `document_id` = ?',
-            [$documentId],
-            true,
-        );
-        $metadataRows = QueryUtils::fetchRecords(
-            'SELECT `metadata_json` FROM `ai_document_facts` WHERE `document_id` = ? ORDER BY `id` ASC LIMIT 1',
-            [$documentId],
-            true,
-        );
-        $metadata = $metadataRows !== [] ? $this->decodeJson($metadataRows[0]['metadata_json'] ?? null) : null;
-        $confidence = $metadata['extraction_confidence'] ?? null;
-
-        return [
-            'fact_count' => (int) ($countRows[0]['fact_count'] ?? 0),
-            'document_summary' => $this->nullableString($metadata['document_summary'] ?? null),
-            'extraction_confidence' => is_int($confidence) || is_float($confidence) || is_numeric($confidence)
-                ? (float) $confidence
-                : null,
-        ];
-    }
-
-    /**
-     * @return list<array{page_number: int|null, text: string, bbox: array<string, mixed>|list<mixed>|null}>
-     */
-    private function sourceSnippetsForFact(int $factId, int $limit): array
-    {
-        $snippets = QueryUtils::fetchRecords(
-            'SELECT `page_number`, `snippet_text`, `bbox_json` '
-            . 'FROM `ai_document_source_snippets` WHERE `fact_id` = ? ORDER BY `id` ASC '
-            . 'LIMIT ' . $this->boundedLimit($limit, 3, 10),
-            [$factId],
-            true,
-        );
-
-        return array_map(
-            fn (array $snippet): array => [
-                'page_number' => $this->nullableInt($snippet['page_number'] ?? null),
-                'text' => (string) $snippet['snippet_text'],
-                'bbox' => $this->decodeJson($snippet['bbox_json'] ?? null),
-            ],
-            $snippets,
-        );
-    }
-
-    /**
-     * @param list<array<string, mixed>> $snippets
-     */
-    private function firstSnippetText(array $snippets): ?string
-    {
-        foreach ($snippets as $snippet) {
-            $text = $this->nullableString($snippet['text'] ?? null);
-            if ($text !== null) {
-                return substr($text, 0, 500);
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * @param array<string, mixed> $fact
-     * @param array<string, mixed> $extraction
-     *
-     * @return array<string, mixed>
-     */
-    private function factMetadata(array $fact, array $extraction): array
-    {
-        return [
-            'question' => $fact['question'] ?? null,
-            'answer' => $fact['answer'] ?? null,
-            'reference_range' => $fact['reference_range'] ?? null,
-            'flag' => $fact['flag'] ?? null,
-            'document_summary' => $extraction['document_summary'] ?? null,
-            'extraction_confidence' => $extraction['extraction_confidence'] ?? null,
-        ];
-    }
-
-    /**
-     * @param list<string> $conditions
-     * @param list<mixed>  $binds
-     */
-    private function appendStringFilter(array &$conditions, array &$binds, string $column, mixed $value): void
-    {
-        $text = $this->nullableString($value);
-        if ($text === null) {
-            return;
-        }
-        $conditions[] = $column . ' = ?';
-        $binds[] = $text;
-    }
-
-    /**
-     * @param list<string> $conditions
-     * @param list<mixed>  $binds
-     */
-    private function appendDateFilter(
-        array &$conditions,
-        array &$binds,
-        string $column,
-        string $operator,
-        mixed $value,
-    ): void {
-        $date = $this->nullableDate($value);
-        if ($date === null) {
-            return;
-        }
-        $conditions[] = $column . ' ' . $operator . ' ?';
-        $binds[] = $date;
-    }
-
-    private function boundedLimit(mixed $value, int $default, int $max): int
-    {
-        $limit = $default;
-        if (is_int($value)) {
-            $limit = $value;
-        } elseif (is_string($value) && ctype_digit($value)) {
-            $limit = (int) $value;
-        }
-
-        return max(1, min($limit, $max));
     }
 
     private function nullableDate(mixed $value): ?string
@@ -971,59 +451,6 @@ final class DocumentIngestionRepository
         $text = trim((string) $value);
 
         return $text === '' ? null : $text;
-    }
-
-    private function stringValue(mixed $value, string $fallback): string
-    {
-        $text = $this->nullableString($value);
-
-        return $text ?? $fallback;
-    }
-
-    private function nullableNumeric(mixed $value): ?string
-    {
-        if (!is_int($value) && !is_float($value) && !is_string($value)) {
-            return null;
-        }
-        if (!is_numeric($value)) {
-            return null;
-        }
-
-        return (string) $value;
-    }
-
-    private function nullableInt(mixed $value): ?int
-    {
-        if (is_int($value)) {
-            return $value;
-        }
-        if (is_string($value) && ctype_digit($value)) {
-            return (int) $value;
-        }
-
-        return null;
-    }
-
-    private function jsonOrNull(mixed $value): ?string
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        return json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
-    }
-
-    /**
-     * @return array<string, mixed>|list<mixed>|null
-     */
-    private function decodeJson(mixed $value): array|null
-    {
-        if (!is_string($value) || trim($value) === '') {
-            return null;
-        }
-        $decoded = json_decode($value, true);
-
-        return is_array($decoded) ? $decoded : null;
     }
 
     private function isoDateTime(mixed $value): string

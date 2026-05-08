@@ -34,6 +34,7 @@ TOOL_FIELD_WHITELIST: dict[str, tuple[str, ...]] = {
         "effectiveDateTime",
         "interpretation",
         "referenceRange",
+        "aiProvenance",
     ),
     "get_observations": (
         "category",
@@ -44,6 +45,7 @@ TOOL_FIELD_WHITELIST: dict[str, tuple[str, ...]] = {
         "effectiveDateTime",
         "interpretation",
         "referenceRange",
+        "aiProvenance",
     ),
     "get_medication_history": (
         "status",
@@ -101,6 +103,12 @@ TOOL_FIELD_WHITELIST: dict[str, tuple[str, ...]] = {
         "addresses",
     ),
     "get_recent_notes": ("description", "date", "author", "content"),
+    "get_questionnaire_responses": (
+        "status",
+        "questionnaire",
+        "authored",
+        "item",
+    ),
 }
 
 

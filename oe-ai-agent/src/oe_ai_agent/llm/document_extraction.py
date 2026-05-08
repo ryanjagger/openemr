@@ -145,10 +145,18 @@ def _instruction_text(request: DocumentExtractionRequest) -> str:
         f"Document filename: {request.filename}\n"
         "Document type confirmed by user: intake_form\n\n"
         "Extract every question-answer pair visible in the patient intake form. "
-        "For each answer, use fact_type='intake_answer', label as a short field "
-        "name, question as the form question, answer and value_text as the "
-        "patient response, and source_snippets with short verbatim evidence and "
-        "page_number."
+        "For each answer, emit one fact with: fact_type='intake_answer'; "
+        "label as a short field name; question as the form question text "
+        "verbatim; answer and value_text as the patient's response; "
+        "link_id as a stable identifier of the form 'q1', 'q2', ... in "
+        "document reading order (this is the join key between the form's "
+        "structure and the patient's answer in the FHIR Questionnaire / "
+        "QuestionnaireResponse pair we build downstream); answer_type as "
+        "one of 'string', 'boolean', 'choice', 'integer', 'decimal', or "
+        "'date' based on the answer's natural shape — use 'choice' for "
+        "checkbox/radio questions and list the available answer_options "
+        "exactly as printed on the form; and source_snippets with short "
+        "verbatim evidence and page_number."
     )
 
 

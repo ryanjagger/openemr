@@ -139,12 +139,12 @@ def test_typed_fact_reextraction_pass_when_number_present() -> None:
     assert check_typed_fact_reextraction(item, rows) is None
 
 
-def test_chat_lab_result_can_cite_indexed_document_reference() -> None:
+def test_chat_lab_result_can_cite_observation() -> None:
     rows = [
         _row(
-            "IndexedDocumentFact",
-            "doc-1",
-            fields={"source": "indexed_document_fact", "fact_type": "lab_result"},
+            "Observation",
+            "obs-1",
+            fields={"category": [{"coding": [{"code": "laboratory"}]}]},
             verbatim="A1c 8.2 %",
         )
     ]
@@ -152,7 +152,7 @@ def test_chat_lab_result_can_cite_indexed_document_reference() -> None:
         type=ChatFactType.LAB_RESULT,
         text="A1c 8.2 %",
         verbatim_excerpts=["A1c 8.2 %"],
-        citations=[Citation(resource_type="IndexedDocumentFact", resource_id="doc-1")],
+        citations=[Citation(resource_type="Observation", resource_id="obs-1")],
     )
 
     verified, failures = _verify_chat_facts(
@@ -167,16 +167,19 @@ def test_chat_lab_result_can_cite_indexed_document_reference() -> None:
     assert failures == []
 
 
-def test_chat_intake_answer_can_cite_indexed_document_fact() -> None:
+def test_chat_intake_answer_can_cite_questionnaire_response() -> None:
     rows = [
         _row(
-            "IndexedDocumentFact",
-            "doc-1#fact-9",
+            "QuestionnaireResponse",
+            "qr-1",
             fields={
-                "source": "indexed_document_fact",
-                "fact_type": "intake_answer",
-                "label": "Preferred pharmacy",
-                "value_text": "Main Street Pharmacy",
+                "item": [
+                    {
+                        "linkId": "q9",
+                        "text": "Preferred pharmacy",
+                        "answer": [{"valueString": "Main Street Pharmacy"}],
+                    }
+                ],
             },
             verbatim="Preferred pharmacy: Main Street Pharmacy",
         )
@@ -186,7 +189,7 @@ def test_chat_intake_answer_can_cite_indexed_document_fact() -> None:
         text="Patient reported preferred pharmacy: Main Street Pharmacy",
         verbatim_excerpts=["Preferred pharmacy: Main Street Pharmacy"],
         citations=[
-            Citation(resource_type="IndexedDocumentFact", resource_id="doc-1#fact-9")
+            Citation(resource_type="QuestionnaireResponse", resource_id="qr-1")
         ],
     )
 
@@ -202,16 +205,19 @@ def test_chat_intake_answer_can_cite_indexed_document_fact() -> None:
     assert failures == []
 
 
-def test_chat_medication_cannot_cite_intake_document_fact_as_structured_med() -> None:
+def test_chat_medication_cannot_cite_questionnaire_response_as_structured_med() -> None:
     rows = [
         _row(
-            "IndexedDocumentFact",
-            "doc-1#fact-10",
+            "QuestionnaireResponse",
+            "qr-2",
             fields={
-                "source": "indexed_document_fact",
-                "fact_type": "intake_answer",
-                "label": "Medication",
-                "value_text": "Lisinopril 10 mg",
+                "item": [
+                    {
+                        "linkId": "q10",
+                        "text": "Medication",
+                        "answer": [{"valueString": "Lisinopril 10 mg"}],
+                    }
+                ],
             },
             verbatim="Medication: Lisinopril 10 mg",
         )
@@ -221,7 +227,7 @@ def test_chat_medication_cannot_cite_intake_document_fact_as_structured_med() ->
         text="Medication: Lisinopril 10 mg",
         verbatim_excerpts=["Medication: Lisinopril 10 mg"],
         citations=[
-            Citation(resource_type="IndexedDocumentFact", resource_id="doc-1#fact-10")
+            Citation(resource_type="QuestionnaireResponse", resource_id="qr-2")
         ],
     )
 

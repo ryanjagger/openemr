@@ -133,57 +133,6 @@ final class DocumentIngestionController
         }
     }
 
-    public function indexed(string $pid, HttpRestRequest $request): JsonResponse
-    {
-        $patientId = $this->patientId($pid);
-        if ($patientId === 0) {
-            return $this->error('patient_not_found', 404);
-        }
-        if (!$this->patientAccessValidator->canRead((string) $patientId)) {
-            return $this->error('forbidden', 403);
-        }
-
-        return $this->json([
-            'documents' => $this->repository->indexedDocumentManifests(
-                patientId: $patientId,
-                limit: $this->queryInt($request, 'limit', 25),
-                documentType: $this->queryString($request, 'document_type'),
-                query: $this->queryString($request, 'query'),
-            ),
-        ]);
-    }
-
-    public function indexedFacts(string $pid, HttpRestRequest $request): JsonResponse
-    {
-        $patientId = $this->patientId($pid);
-        if ($patientId === 0) {
-            return $this->error('patient_not_found', 404);
-        }
-        if (!$this->patientAccessValidator->canRead((string) $patientId)) {
-            return $this->error('forbidden', 403);
-        }
-        $patientUuid = $this->patientUuid($patientId);
-        if ($patientUuid === null) {
-            return $this->error('patient_not_found', 404);
-        }
-
-        return $this->json([
-            'facts' => $this->repository->searchIndexedDocumentFacts(
-                patientId: $patientId,
-                patientUuid: $patientUuid,
-                filters: [
-                    'document_uuid' => $this->queryString($request, 'document_uuid'),
-                    'document_type' => $this->queryString($request, 'document_type'),
-                    'fact_type' => $this->queryString($request, 'fact_type'),
-                    'query' => $this->queryString($request, 'query'),
-                    'observed_on_from' => $this->queryString($request, 'observed_on_from'),
-                    'observed_on_to' => $this->queryString($request, 'observed_on_to'),
-                    'limit' => $this->queryInt($request, 'limit', 50),
-                ],
-            ),
-        ]);
-    }
-
     /**
      * @return list<array{document_id: int, document_type: string}>
      */

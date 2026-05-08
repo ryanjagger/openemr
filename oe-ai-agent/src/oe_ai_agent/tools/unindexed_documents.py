@@ -3,13 +3,17 @@
 Two tools:
 
 * ``list_unindexed_documents`` — return uploaded documents that have not yet
-  been indexed. Wraps ``GET /api/ai/documents/recent/:pid`` and filters out
+  been ingested. Wraps ``GET /api/ai/documents/recent/:pid`` and filters out
   rows that already carry ``already_ingested = true``.
 * ``extract_documents`` — kick off ingestion for a list of document UUIDs
-  and block until the job completes (or a timeout fires), then return
-  ``IndexedDocumentFact`` rows for the freshly extracted facts. Wraps
+  and block until the job completes (or a timeout fires). Wraps
   ``POST /api/ai/documents/ingest/:pid`` and polls
-  ``GET /api/ai/documents/:pid/jobs/:jobId``.
+  ``GET /api/ai/documents/:pid/jobs/:jobId``. Returns no rows directly —
+  post-Phase-5 the extracted clinical data lives in FHIR Observation
+  (lab_report) and FHIR QuestionnaireResponse (intake_form). The supervisor
+  routes to evidence_retriever afterwards, which calls
+  ``get_lab_trend`` / ``get_observations`` / ``get_questionnaire_responses``
+  to surface the just-ingested rows for citation.
 """
 
 from __future__ import annotations
@@ -21,7 +25,6 @@ from typing import Any
 from oe_ai_agent.schemas.tool_results import TypedRow
 from oe_ai_agent.schemas.unindexed_document import UnindexedDocument
 from oe_ai_agent.tools.fhir_client import FhirClient, FhirError
-from oe_ai_agent.tools.indexed_documents import search_indexed_document_facts
 
 DEFAULT_POLL_INTERVAL_SECONDS = 1.5
 DEFAULT_POLL_TIMEOUT_SECONDS = 60.0
@@ -77,9 +80,10 @@ async def extract_documents(
 ) -> tuple[list[TypedRow], dict[str, Any]]:
     """Kick off ingestion and block until the job completes.
 
-    Returns ``(rows, status)`` where ``rows`` is the IndexedDocumentFact rows
-    available after the job finishes (or after the poll timeout) and
-    ``status`` is the final job payload from OpenEMR for trace metadata.
+    Returns ``(rows, status)`` where ``rows`` is always empty (extracted
+    clinical data is fetched separately by evidence_retriever via
+    ``get_lab_trend`` / ``get_observations`` / ``get_questionnaire_responses``)
+    and ``status`` is the final job payload from OpenEMR for trace metadata.
     """
     if not selections:
         return [], {
@@ -108,21 +112,12 @@ async def extract_documents(
         poll_timeout_seconds=poll_timeout_seconds,
     )
 
-    document_uuids = [
-        str(doc.get("uuid"))
-        for doc in _job_documents(final_job)
-        if isinstance(doc.get("uuid"), str)
-    ]
+    # Post-Phase-5: extracted facts now live in FHIR Observation (labs) and
+    # FHIR QuestionnaireResponse (intake), not in the legacy indexed-facts
+    # API. We do not echo rows back here; the supervisor routes to
+    # evidence_retriever next, which calls get_lab_trend / get_observations /
+    # get_questionnaire_responses to surface the just-ingested data.
     rows: list[TypedRow] = []
-    for document_uuid in document_uuids:
-        rows.extend(
-            await search_indexed_document_facts(
-                client,
-                patient_uuid,
-                document_uuid=document_uuid,
-            )
-        )
-
     return rows, final_job
 
 

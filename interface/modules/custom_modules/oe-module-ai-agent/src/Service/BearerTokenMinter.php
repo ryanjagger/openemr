@@ -49,6 +49,7 @@ final class BearerTokenMinter
         'user/ServiceRequest.read',
         'user/Procedure.read',
         'user/Immunization.read',
+        'user/QuestionnaireResponse.read',
     ];
 
     /** @var list<string> */

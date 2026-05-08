@@ -1,13 +1,13 @@
 {
-  "label": "indexed uploaded lab missing requested fact",
+  "label": "uploaded lab missing requested fact (troponin)",
   "turns": [
     {
-      "label": "indexed uploaded lab missing requested fact",
+      "label": "uploaded lab missing requested fact (troponin)",
       "user": "What did the uploaded lab report say about troponin?",
       "expectations": {
         "max_verified_facts": 0,
         "expected_tools_called": [
-          "get_indexed_lab_results"
+          "get_observations"
         ],
         "narrative_must_contain": [
           "available chart results do not contain that information"
@@ -15,10 +15,10 @@
       }
     }
   ],
-  "fhir": {},
-  "api": {
-    "GET /ai/documents/indexed-facts/eval-patient-fixture/document": {
-      "facts": []
+  "fhir": {
+    "Observation": {
+      "resourceType": "Bundle",
+      "entry": []
     }
   }
 }
