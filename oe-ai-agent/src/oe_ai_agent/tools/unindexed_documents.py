@@ -24,6 +24,7 @@ from typing import Any
 
 from oe_ai_agent.schemas.tool_results import TypedRow
 from oe_ai_agent.schemas.unindexed_document import UnindexedDocument
+from oe_ai_agent.status import update_current_chat_status
 from oe_ai_agent.tools.fhir_client import FhirClient, FhirError
 
 DEFAULT_POLL_INTERVAL_SECONDS = 1.5
@@ -100,6 +101,13 @@ async def extract_documents(
             "failed_count": 0,
         }
 
+    update_current_chat_status(
+        stage="Starting document extraction job",
+        detail=f"Submitting {len(selections)} documents for extraction",
+        worker="extractor",
+        tool_name="extract_documents",
+        attrs={"document_count": len(selections)},
+    )
     job = await client.api_post(
         f"ai/documents/ingest/{patient_uuid}",
         {"documents": selections},
@@ -111,6 +119,13 @@ async def extract_documents(
             status_code=None,
         )
 
+    update_current_chat_status(
+        stage="Document extraction job queued",
+        detail=f"Job {job_uuid}",
+        worker="extractor",
+        tool_name="extract_documents",
+        attrs=_job_status_attrs(job),
+    )
     final_job = await _poll_until_terminal(
         client,
         patient_uuid=patient_uuid,
@@ -140,6 +155,13 @@ async def _poll_until_terminal(
     while True:
         job = await client.api_get(f"ai/documents/{patient_uuid}/jobs/{job_uuid}")
         status = str(job.get("status") or "")
+        update_current_chat_status(
+            stage=_poll_stage(status),
+            detail=_poll_detail(job),
+            worker="extractor",
+            tool_name="extract_documents",
+            attrs=_job_status_attrs(job),
+        )
         if status in TERMINAL_JOB_STATUSES:
             return job
         if _monotonic() >= deadline:
@@ -159,6 +181,57 @@ def _job_documents(job: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(documents, list):
         return []
     return [doc for doc in documents if isinstance(doc, dict)]
+
+
+def _poll_stage(status: str) -> str:
+    return {
+        "pending": "Document extraction job queued",
+        "processing": "Document extraction worker running",
+        "completed": "Document extraction completed",
+        "partial": "Document extraction partially completed",
+        "failed": "Document extraction failed",
+    }.get(status, "Document extraction job status updated")
+
+
+def _poll_detail(job: dict[str, Any]) -> str:
+    total = _optional_int(job.get("document_count"))
+    processed = _optional_int(job.get("processed_count")) or 0
+    failed = _optional_int(job.get("failed_count")) or 0
+    parts: list[str] = []
+    if total is not None:
+        parts.append(f"{processed + failed} of {total} documents finished")
+    active = _active_document(job)
+    if active is not None:
+        filename = active.get("filename")
+        if isinstance(filename, str) and filename:
+            parts.append(filename)
+    return " · ".join(parts)
+
+
+def _active_document(job: dict[str, Any]) -> dict[str, Any] | None:
+    documents = _job_documents(job)
+    for status in ("processing", "pending", "failed", "completed"):
+        for document in documents:
+            if document.get("status") == status:
+                return document
+    return None
+
+
+def _job_status_attrs(job: dict[str, Any]) -> dict[str, object]:
+    attrs: dict[str, object] = {}
+    for key in ("job_id", "status", "document_count", "processed_count", "failed_count"):
+        value = job.get(key)
+        if isinstance(value, str | int | float | bool) or value is None:
+            attrs[key] = value
+    return attrs
+
+
+def _optional_int(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
 
 
 def _optional_str(value: object) -> str | None:

@@ -322,6 +322,26 @@ async def test_unground_number_in_narrative_is_replaced_with_fallback() -> None:
 
 
 @pytest.mark.asyncio
+async def test_empty_envelope_is_replaced_with_no_evidence_fallback() -> None:
+    llm = MockLlmClient(
+        chat_scripted=_supervisor_routes_then_finalize({"narrative": "", "facts": []})
+    )
+
+    with respx.mock(assert_all_called=False) as mock:
+        _fhir_routes(mock)
+        graph = build_chat_graph(llm)
+        final = await graph.ainvoke(  # type: ignore[attr-defined]
+            _initial_state([ChatMessage(role=ChatRole.USER, content="lipid panel?")])
+        )
+
+    assert final["verified_facts"] == []
+    assert final["parsed_narrative"] == (
+        "I couldn't find enough chart evidence to answer that question."
+    )
+    assert any(f.rule == "empty_answer" for f in final["verification_failures"])
+
+
+@pytest.mark.asyncio
 async def test_guideline_only_narrative_fallback_keeps_cards_without_user_failure() -> None:
     envelope = {
         "narrative": ("The 2022 CDC opioid guideline includes 12 recommendations for pain care."),

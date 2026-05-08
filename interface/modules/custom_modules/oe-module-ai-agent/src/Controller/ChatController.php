@@ -22,6 +22,7 @@ use OpenEMR\Modules\AiAgent\DTO\ChatTurnResponse;
 use OpenEMR\Modules\AiAgent\DTO\LlmCallLogEntry;
 use OpenEMR\Modules\AiAgent\DTO\LlmCallVerificationStatus;
 use OpenEMR\Modules\AiAgent\DTO\ResponseMeta;
+use OpenEMR\Modules\AiAgent\Exception\SidecarRequestException;
 use OpenEMR\Modules\AiAgent\Service\AuditLogService;
 use OpenEMR\Modules\AiAgent\Service\BearerTokenMinter;
 use OpenEMR\Modules\AiAgent\Service\DocumentIngestionRepository;
@@ -57,10 +58,10 @@ final class ChatController
      */
     public function turn(string $pid, HttpRestRequest $request): array
     {
-        $requestId = Uuid::uuid4()->toString();
         $patientId = ctype_digit($pid) ? (int) $pid : 0;
         $userId = $this->resolveUserId();
         $body = $this->decodeBody($request);
+        $requestId = $this->extractRequestId($body) ?? Uuid::uuid4()->toString();
         $conversationId = $this->extractConversationId($body);
         $messages = $this->extractMessages($body);
         $requestHash = $this->hashCanonical([
@@ -194,7 +195,35 @@ final class ChatController
 
         $startedAt = microtime(true);
         try {
+            $this->releaseSessionLock();
             $chatResponse = $this->sidecarClient->fetchChatTurn($chatRequest);
+        } catch (SidecarRequestException $e) {
+            $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
+            $errorCode = $this->chatErrorCodeFromSidecar($e);
+            $payload = [
+                'error' => $errorCode,
+                'request_id' => $requestId,
+            ];
+            if ($conversationId !== null) {
+                $payload['conversation_id'] = $conversationId;
+            }
+
+            return $this->finalize(
+                requestId: $requestId,
+                conversationId: $conversationId,
+                userId: $userId,
+                patientId: $patientId,
+                modelId: 'unknown',
+                requestHash: $requestHash,
+                responseHash: $this->hashCanonical($payload),
+                status: LlmCallVerificationStatus::Failed,
+                verificationFailures: null,
+                httpStatus: $this->chatHttpStatusForError($errorCode),
+                payload: $payload,
+                errorCode: $errorCode,
+                errorDetail: $e->getErrorDetail() ?? substr($e->getMessage(), 0, 1000),
+                latencyMs: $latencyMs,
+            );
         } catch (Throwable $e) {
             $latencyMs = (int) round((microtime(true) - $startedAt) * 1000);
             return $this->finalize(
@@ -233,6 +262,39 @@ final class ChatController
             meta: $chatResponse->meta,
             errorCode: $errorCode,
         );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function status(string $pid, string $requestId): array
+    {
+        $patientId = ctype_digit($pid) ? (int) $pid : 0;
+        if ($patientId === 0 || !$this->patientAccessValidator->canRead($pid)) {
+            http_response_code(404);
+            return ['error' => 'status_not_found'];
+        }
+        if (!Uuid::isValid($requestId)) {
+            http_response_code(400);
+            return ['error' => 'invalid_request_id'];
+        }
+
+        try {
+            return $this->sidecarClient->fetchChatStatus($requestId);
+        } catch (Throwable) {
+            return [
+                'request_id' => $requestId,
+                'state' => 'unknown',
+                'stage' => 'Unknown',
+                'detail' => null,
+                'worker' => null,
+                'route' => null,
+                'tool_name' => null,
+                'attrs' => [],
+                'created_at' => null,
+                'updated_at' => null,
+            ];
+        }
     }
 
     /**
@@ -319,6 +381,22 @@ final class ChatController
         return LlmCallVerificationStatus::Passed;
     }
 
+    private function chatErrorCodeFromSidecar(SidecarRequestException $e): string
+    {
+        return match ($e->getErrorCode()) {
+            'model_overloaded' => 'model_overloaded',
+            default => 'sidecar_unreachable',
+        };
+    }
+
+    private function chatHttpStatusForError(string $errorCode): int
+    {
+        return match ($errorCode) {
+            'model_overloaded' => 503,
+            default => 502,
+        };
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -345,6 +423,26 @@ final class ChatController
     {
         $value = $body['conversation_id'] ?? null;
         if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        return $value;
+    }
+
+    private function releaseSessionLock(): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $body
+     */
+    private function extractRequestId(array $body): ?string
+    {
+        $value = $body['request_id'] ?? null;
+        if (!is_string($value) || !Uuid::isValid($value)) {
             return null;
         }
 

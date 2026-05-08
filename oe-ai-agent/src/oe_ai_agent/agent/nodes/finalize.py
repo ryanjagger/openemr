@@ -18,6 +18,7 @@ from oe_ai_agent.llm.prompts_supervisor import (
 )
 from oe_ai_agent.observability import current_trace, get_logger, step
 from oe_ai_agent.schemas.chat import ChatFactType
+from oe_ai_agent.status import update_current_chat_status
 
 logger = get_logger(__name__)
 
@@ -33,6 +34,11 @@ def make_finalize_node(
 
     async def finalize_node(state: ChatState) -> dict[str, object]:
         async with step("finalize", model=llm.model_id) as record:
+            update_current_chat_status(
+                stage="Finalizing response",
+                detail=f"Synthesizing answer from {len(state.cached_context)} evidence rows",
+                worker="finalize",
+            )
             messages = build_finalize_messages(
                 patient_uuid=state.patient_uuid,
                 cached_context=state.cached_context,
@@ -57,6 +63,11 @@ def make_finalize_node(
                     "context_row_count": len(state.cached_context),
                     "had_envelope": result.content is not None,
                 }
+            )
+            update_current_chat_status(
+                stage="Response drafted",
+                detail="Running parser and verifier",
+                worker="finalize",
             )
             return {"raw_envelope": result.content}
 

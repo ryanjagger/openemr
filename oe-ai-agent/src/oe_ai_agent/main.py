@@ -15,6 +15,7 @@ from oe_ai_agent.agent.state import AgentState
 from oe_ai_agent.auth import require_internal_auth
 from oe_ai_agent.config import load_settings
 from oe_ai_agent.conversation import TurnLimitError, get_default_store
+from oe_ai_agent.errors import classify_chat_exception, summarize_error
 from oe_ai_agent.llm import LiteLLMClient, LlmClient, MockLlmClient
 from oe_ai_agent.llm.document_extraction import (
     DocumentExtractionParseError,
@@ -43,6 +44,13 @@ from oe_ai_agent.schemas import (
 from oe_ai_agent.schemas.brief import VerificationFailure
 from oe_ai_agent.schemas.observability import ResponseMeta, StepEntry, UsageBlock
 from oe_ai_agent.schemas.tool_results import TypedRow
+from oe_ai_agent.status import (
+    chat_status_context,
+    complete_current_chat_status,
+    fail_current_chat_status,
+    get_chat_status,
+    update_current_chat_status,
+)
 
 configure_logging()
 logger = get_logger(__name__)
@@ -234,104 +242,131 @@ async def chat(request: ChatRequest) -> ChatTurnResponse:
                 tags=["chat", "demo"],
             ) as lf_trace,
         ):
-            try:
-                await store.increment_turn(entry.conversation_id)
-            except TurnLimitError as exc:
+            with chat_status_context(request.request_id, stage="Starting chat turn"):
+                try:
+                    await store.increment_turn(entry.conversation_id)
+                except TurnLimitError as exc:
+                    fail_current_chat_status("Turn limit exceeded", str(exc))
+                    meta = _build_meta(trace)
+                    _emit_complete(
+                        action="chat.turn",
+                        status="denied",
+                        error_code="turn_limit_exceeded",
+                        meta=meta,
+                    )
+                    response = ChatTurnResponse(
+                        request_id=request.request_id,
+                        conversation_id=entry.conversation_id,
+                        model_id=model_id,
+                        narrative="",
+                        facts=[],
+                        verification_failures=[
+                            VerificationFailure(rule="turn_limit_exceeded", detail=str(exc)),
+                        ],
+                        meta=meta,
+                    )
+                    lf_trace.update(
+                        output=response.model_dump_json_safe(),
+                        metadata={"status": "denied", "error_code": "turn_limit_exceeded"},
+                    )
+                    return response
+
+                initial = ChatState(
+                    patient_uuid=request.patient_uuid,
+                    fhir_base_url=request.fhir_base_url,
+                    bearer_token=request.bearer_token,
+                    request_id=request.request_id,
+                    conversation_id=entry.conversation_id,
+                    history=list(request.messages),
+                    cached_context=_merge_context(
+                        list(entry.cached_context),
+                        list(request.document_context),
+                    ),
+                )
+                try:
+                    update_current_chat_status(stage="Preparing LangGraph supervisor")
+                    final_state_dict = await _chat_graph().ainvoke(initial)  # type: ignore[attr-defined]
+                except Exception as exc:
+                    error = classify_chat_exception(exc)
+                    logger.exception("chat graph failed", error_code=error.rule)
+                    fail_current_chat_status(error.status_stage, error.detail)
+                    meta = _build_meta(trace)
+                    _emit_complete(
+                        action="chat.turn",
+                        status=error.status,
+                        error_code=error.rule,
+                        meta=meta,
+                    )
+                    if error.http_status is not None:
+                        error_payload = {
+                            "error": error.rule,
+                            "message": error.detail,
+                            "request_id": request.request_id,
+                            "conversation_id": entry.conversation_id,
+                        }
+                        lf_trace.update(
+                            output=error_payload,
+                            metadata={"status": error.status, "error_code": error.rule},
+                        )
+                        raise HTTPException(
+                            status_code=error.http_status,
+                            detail=error_payload,
+                        ) from exc
+
+                    response = ChatTurnResponse(
+                        request_id=request.request_id,
+                        conversation_id=entry.conversation_id,
+                        model_id=model_id,
+                        narrative="",
+                        facts=[],
+                        verification_failures=[
+                            VerificationFailure(rule=error.rule, detail=error.detail),
+                        ],
+                        meta=meta,
+                    )
+                    lf_trace.update(
+                        output=response.model_dump_json_safe(),
+                        metadata={"status": error.status, "error_code": error.rule},
+                    )
+                    return response
+
+                final = ChatState.model_validate(final_state_dict)
+                await store.update_context(entry.conversation_id, final.cached_context)
                 meta = _build_meta(trace)
+                status, error_code = _classify_chat_outcome(final)
                 _emit_complete(
                     action="chat.turn",
-                    status="denied",
-                    error_code="turn_limit_exceeded",
+                    status=status,
+                    error_code=error_code,
                     meta=meta,
                 )
                 response = ChatTurnResponse(
                     request_id=request.request_id,
                     conversation_id=entry.conversation_id,
                     model_id=model_id,
-                    narrative="",
-                    facts=[],
-                    verification_failures=[
-                        VerificationFailure(rule="turn_limit_exceeded", detail=str(exc)),
-                    ],
+                    narrative=final.parsed_narrative,
+                    facts=final.verified_facts,
+                    verification_failures=final.verification_failures,
                     meta=meta,
                 )
+                complete_current_chat_status("Chat response ready")
                 lf_trace.update(
                     output=response.model_dump_json_safe(),
-                    metadata={"status": "denied", "error_code": "turn_limit_exceeded"},
+                    metadata={
+                        "status": status,
+                        "error_code": error_code,
+                        "verified_fact_count": len(final.verified_facts),
+                        "verification_failure_count": len(final.verification_failures),
+                    },
                 )
                 return response
-
-            initial = ChatState(
-                patient_uuid=request.patient_uuid,
-                fhir_base_url=request.fhir_base_url,
-                bearer_token=request.bearer_token,
-                request_id=request.request_id,
-                conversation_id=entry.conversation_id,
-                history=list(request.messages),
-                cached_context=_merge_context(
-                    list(entry.cached_context),
-                    list(request.document_context),
-                ),
-            )
-            try:
-                final_state_dict = await _chat_graph().ainvoke(initial)  # type: ignore[attr-defined]
-            except Exception as exc:
-                logger.exception("chat graph failed")
-                meta = _build_meta(trace)
-                _emit_complete(
-                    action="chat.turn",
-                    status="error",
-                    error_code="agent_error",
-                    meta=meta,
-                )
-                response = ChatTurnResponse(
-                    request_id=request.request_id,
-                    conversation_id=entry.conversation_id,
-                    model_id=model_id,
-                    narrative="",
-                    facts=[],
-                    verification_failures=[
-                        VerificationFailure(rule="agent_error", detail=_summarize_error(exc)),
-                    ],
-                    meta=meta,
-                )
-                lf_trace.update(
-                    output=response.model_dump_json_safe(),
-                    metadata={"status": "error", "error_code": "agent_error"},
-                )
-                return response
-
-            final = ChatState.model_validate(final_state_dict)
-            await store.update_context(entry.conversation_id, final.cached_context)
-            meta = _build_meta(trace)
-            status, error_code = _classify_chat_outcome(final)
-            _emit_complete(
-                action="chat.turn",
-                status=status,
-                error_code=error_code,
-                meta=meta,
-            )
-            response = ChatTurnResponse(
-                request_id=request.request_id,
-                conversation_id=entry.conversation_id,
-                model_id=model_id,
-                narrative=final.parsed_narrative,
-                facts=final.verified_facts,
-                verification_failures=final.verification_failures,
-                meta=meta,
-            )
-            lf_trace.update(
-                output=response.model_dump_json_safe(),
-                metadata={
-                    "status": status,
-                    "error_code": error_code,
-                    "verified_fact_count": len(final.verified_facts),
-                    "verification_failure_count": len(final.verification_failures),
-                },
-            )
-            return response
     finally:
         clear_request_context()
+
+
+@app.get("/v1/chat/status/{request_id}", dependencies=[Depends(require_internal_auth)])
+async def chat_status(request_id: str) -> dict[str, object]:
+    return get_chat_status(request_id)
 
 
 @app.post("/v1/documents/extract", dependencies=[Depends(require_internal_auth)])
@@ -494,18 +529,4 @@ def _document_context_metadata(prefix: str, rows: list[TypedRow]) -> dict[str, o
 
 
 def _summarize_error(exc: BaseException) -> str:
-    """Compact, user-safe error string for the panel.
-
-    LiteLLM exception messages start with ``litellm.<ErrorType>: <provider>: <body>``
-    and contain the upstream JSON. We keep the provider type + body but strip
-    leading qualifiers so the panel shows something readable.
-    """
-    text = str(exc).strip()
-    if not text:
-        return type(exc).__name__
-    for prefix in ("litellm.",):
-        idx = text.find(prefix)
-        if idx >= 0:
-            text = text[idx + len(prefix) :]
-            break
-    return text[:400]
+    return summarize_error(exc)
