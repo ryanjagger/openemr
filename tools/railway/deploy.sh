@@ -166,8 +166,10 @@ stage_openemr() {
         Dockerfile.railway \
         railway-entrypoint.sh \
         interface/modules/custom_modules/oe-module-ai-agent \
+        interface/main/tabs/js/custom_bindings.js \
         interface/patient_file/summary/copilot.php \
         interface/main/tabs/menu/menus/patient_menus/standard.json \
+        src/Menu/PatientMenuRole.php \
         sql \
         "$stage/"
 
