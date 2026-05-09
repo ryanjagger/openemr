@@ -12,7 +12,7 @@
         "label": "New Dashboard",
         "menu_id": "new_dashboard",
         "target": "main",
-        "on_click": "top.restoreSession()",
+        "on_click": "top.restoreSession(); top.location.href=this.href; return false;",
         "url": "http://localhost:3000/patient/",
         "pid": "true",
         "class": "new-dashboard-bridge",
