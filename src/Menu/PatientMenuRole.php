@@ -17,7 +17,10 @@ namespace OpenEMR\Menu;
 use OpenEMR\BC\ServiceContainer;
 use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Session\SessionWrapperFactory;
+use OpenEMR\Common\Uuid\UuidRegistry;
 use OpenEMR\Core\OEGlobalsBag;
+use OpenEMR\FHIR\Config\ServerConfig;
+use OpenEMR\FHIR\SMART\SMARTLaunchToken;
 use OpenEMR\Menu\PatientMenuEvent;
 use OpenEMR\Services\UserService;
 
@@ -271,11 +274,13 @@ class PatientMenuRole extends MenuRole
     {
         //to make the url absolute to web root and to account for external urls i.e. those beginning with http or https
         foreach ($menu_parsed as $menu_obj) {
+            $this->applyNewDashboardUrl($menu_obj);
             if (property_exists($menu_obj, 'url')) {
                 $menu_obj->url = $this->getAbsoluteWebRoot($menu_obj->url);
             }
             if (!empty($menu_obj->children)) {
                 foreach ($menu_obj->children as $menu_obj) {
+                    $this->applyNewDashboardUrl($menu_obj);
                     if (property_exists($menu_obj, 'url')) {
                         $menu_obj->url = $this->getAbsoluteWebRoot($menu_obj->url);
                     }
@@ -284,5 +289,55 @@ class PatientMenuRole extends MenuRole
         }
 
         return $menu_parsed;
+    }
+
+    /**
+     * Bridge link to the companion Next.js dashboard.
+     *
+     * The JSON menu entry carries a localhost default; the `new_dashboard_url`
+     * global overrides the host. The dashboard is keyed by FHIR Patient.id
+     * (uuid), so we resolve the session pid → uuid here and emit a `/launch`
+     * URL that includes SMART launch context and a `/patient/<uuid>` returnTo,
+     * then flag the entry so the generic pid-append in
+     * displayHorizNavBarMenu() doesn't double-stamp the path.
+     */
+    private function applyNewDashboardUrl(object $menu_obj): void
+    {
+        if (($menu_obj->menu_id ?? null) !== 'new_dashboard') {
+            return;
+        }
+        $menu_obj->on_click = "top.restoreSession(); if (typeof top.navigateTab === 'function') { top.navigateTab(this.href, 'ndb', function () { if (typeof top.activateTabByName === 'function') { top.activateTabByName('ndb', true); } }, 'New Dashboard'); return false; } top.location.href=this.href; return false;";
+        $configured = OEGlobalsBag::getInstance()->get('new_dashboard_url');
+        $hasOverride = is_string($configured) && $configured !== '';
+        $base = $hasOverride ? rtrim($configured, '/') : 'http://localhost:3000';
+
+        $sessionPid = SessionWrapperFactory::getInstance()->getActiveSession()->get('pid');
+        if (is_numeric($sessionPid) && (int) $sessionPid > 0) {
+            $row = sqlQuery(
+                "SELECT uuid FROM patient_data WHERE pid = ?",
+                [(int) $sessionPid]
+            );
+            $uuidBytes = is_array($row) ? ($row['uuid'] ?? null) : null;
+            if (is_string($uuidBytes) && $uuidBytes !== '') {
+                $patientUuid = UuidRegistry::uuidToString($uuidBytes);
+                $patientPath = '/embed/patient/' . urlencode($patientUuid);
+                $launchToken = new SMARTLaunchToken($patientUuid);
+                $launchToken->setIntent(SMARTLaunchToken::INTENT_MAIN_TAB);
+                $issuer = (new ServerConfig())->getFhirUrl();
+                $menu_obj->url = $base . '/launch'
+                    . '?patient=' . urlencode($patientUuid)
+                    . '&returnTo=' . urlencode($patientPath)
+                    . '&launch=' . urlencode((string) $launchToken->serialize())
+                    . '&iss=' . urlencode($issuer)
+                    . '&aud=' . urlencode($issuer);
+                $menu_obj->pid = 'false';
+                return;
+            }
+        }
+
+        if ($hasOverride) {
+            $menu_obj->url = $base . '/launch';
+            $menu_obj->pid = 'false';
+        }
     }
 }

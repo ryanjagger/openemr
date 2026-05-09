@@ -82,12 +82,15 @@ ko.bindingHandlers.location={
                     // need to cancel the loading if we are on another domain
                     // setting the title will hide the spinner and remove the Loading... text
                     const currentUrl = tabData.url?.() ?? '';
+                    const tabName = typeof tabData.name === 'function' ? tabData.name() : '';
 
                     // eRx pages navigate to an external domain (NewCrop), so the iframe document is unreadable
                     const erxMarkers = ['/interface/eRx.php', 'newcrop'];
                     const isErxPage = currentUrl && erxMarkers.some(marker => currentUrl.includes(marker));
+                    const dashboardMarkers = ['/launch', '/embed/patient/', 'localhost:3000'];
+                    const isNewDashboardTab = tabName === 'ndb' || (currentUrl && dashboardMarkers.some(marker => currentUrl.includes(marker)));
 
-                    tabData.title(xl(isErxPage ? 'Ensora eRx' : 'Unknown'));
+                    tabData.title(xl(isErxPage ? 'Ensora eRx' : (isNewDashboardTab ? 'New Dashboard' : 'Unknown')));
                 }
             } ,true
         );

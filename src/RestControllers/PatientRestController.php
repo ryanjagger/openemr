@@ -135,6 +135,7 @@ class PatientRestController
      * White list of patient search fields
      */
     private const SUPPORTED_SEARCH_FIELDS = [
+        "pid",
         "fname",
         "lname",
         "ss",
