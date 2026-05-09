@@ -271,11 +271,13 @@ class PatientMenuRole extends MenuRole
     {
         //to make the url absolute to web root and to account for external urls i.e. those beginning with http or https
         foreach ($menu_parsed as $menu_obj) {
+            $this->applyNewDashboardUrl($menu_obj);
             if (property_exists($menu_obj, 'url')) {
                 $menu_obj->url = $this->getAbsoluteWebRoot($menu_obj->url);
             }
             if (!empty($menu_obj->children)) {
                 foreach ($menu_obj->children as $menu_obj) {
+                    $this->applyNewDashboardUrl($menu_obj);
                     if (property_exists($menu_obj, 'url')) {
                         $menu_obj->url = $this->getAbsoluteWebRoot($menu_obj->url);
                     }
@@ -284,5 +286,22 @@ class PatientMenuRole extends MenuRole
         }
 
         return $menu_parsed;
+    }
+
+    /**
+     * Bridge link to the companion Next.js dashboard. The JSON menu entry
+     * carries a localhost default; this swap honors the `new_dashboard_url`
+     * global when an operator overrides it via Administration → Globals.
+     */
+    private function applyNewDashboardUrl(object $menu_obj): void
+    {
+        if (($menu_obj->menu_id ?? null) !== 'new_dashboard') {
+            return;
+        }
+        $configured = OEGlobalsBag::getInstance()->get('new_dashboard_url');
+        if (!is_string($configured) || $configured === '') {
+            return;
+        }
+        $menu_obj->url = rtrim($configured, '/') . '/patient/';
     }
 }
