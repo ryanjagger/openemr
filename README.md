@@ -1,11 +1,18 @@
 | Project | Location |
 |---------|----------|
-| Deployment | [`https://openemr-staging-79ff.up.railway.app/`](https://openemr-staging-79ff.up.railway.app/) |
+| Deployment (Proxy w/ new frontend) | [`https://dashboard-production-28a5.up.railway.app/interface/login/login.php?site=default`](https://dashboard-production-28a5.up.railway.app/interface/login/login.php?site=default) |
+| Deployment | [`https://openemr-production-406c.up.railway.app/`](https://openemr-production-406c.up.railway.app/) |
+| openemr-dashboard (new frontend) | [`https://labs.gauntletai.com/ryanjagger/openemr-dashboard/`](https://labs.gauntletai.com/ryanjagger/openemr-dashboard/) |
+| PATIENT_DASHBOARD_MIGRATION.md | [`https://labs.gauntletai.com/ryanjagger/openemr-dashboard/-/blob/main/docs/PATIENT_DASHBOARD_MIGRATION.md`](https://labs.gauntletai.com/ryanjagger/openemr-dashboard/-/blob/main/docs/PATIENT_DASHBOARD_MIGRATION.md) |
+| W2 Architecture | [`docs/W2_ARCHITECTURE.md`](docs/W2_ARCHITECTURE.md) |
+| Document Ingestion Schemas | [`docs/document-ingestion-schemas.md`](docs/document-ingestion-schemas.md) |
 | Project planning (ARCHITECTURE.md, USER.MD, AUDIT.md) | [`docs/planning/`](docs/planning/) |
 | AI Cost Analysis | [`AI-COST-ANALYSIS.md/`](docs/planning/AI-COST-ANALYSIS.md) |
 | OpenEMR module (PHP) | [`interface/modules/custom_modules/oe-module-ai-agent/`](interface/modules/custom_modules/oe-module-ai-agent/) |
 | AI sidecar | [`oe-ai-agent/`](oe-ai-agent/) |
 | Eval cases + runner | [`oe-ai-agent/evals/`](oe-ai-agent/evals/) |
+| Deployment | [`tools/railway/deploy.sh`](tools/railway/deploy.sh) |
+| Eval gate | [`tools/railway/oe-ai-agent-eval-gate.sh`](tools/railway/oe-ai-agent-eval-gate.sh) |
 
 ---
 

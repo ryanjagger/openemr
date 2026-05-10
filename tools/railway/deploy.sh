@@ -12,6 +12,7 @@ message=""
 dry_run="false"
 keep_stage="false"
 force="false"
+skip_eval_gate="false"
 
 usage() {
     cat <<'USAGE'
@@ -30,6 +31,7 @@ Options:
   --dry-run              Build staging directories and print railway up commands without deploying
   --force                Force a rebuild by adding a timestamp label to the staged Dockerfile
   --keep-stage           Keep temporary staging directories after deploy
+  --skip-eval-gate       Skip the deterministic mock eval gate for oe-ai-agent (for hotfixes)
   -h, --help             Show this help
 
 Examples:
@@ -98,6 +100,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --keep-stage)
             keep_stage="true"
+            shift
+            ;;
+        --skip-eval-gate)
+            skip_eval_gate="true"
             shift
             ;;
         -h|--help)
@@ -245,7 +251,28 @@ deploy_openemr() {
     run_railway_up "openemr" "$staged_path"
 }
 
+run_oe_ai_agent_eval_gate() {
+    local gate_script="$repo_root/tools/railway/oe-ai-agent-eval-gate.sh"
+    [[ -x "$gate_script" ]] || die "eval gate script not found or not executable: $gate_script"
+
+    info "running chat eval gate (deterministic mock provider)..."
+    if "$gate_script"; then
+        info "chat eval gate passed"
+    else
+        die "chat eval gate failed — deployment aborted. Use --skip-eval-gate to bypass."
+    fi
+}
+
 deploy_oe_ai_agent() {
+    # Run eval gate unless skipped
+    if [[ "$dry_run" == "true" ]]; then
+        info "skipping eval gate (--dry-run)"
+    elif [[ "$skip_eval_gate" != "true" ]]; then
+        run_oe_ai_agent_eval_gate
+    else
+        info "skipping eval gate (--skip-eval-gate)"
+    fi
+
     stage_oe_ai_agent
     run_railway_up "oe-ai-agent" "$staged_path"
 }
