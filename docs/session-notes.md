@@ -160,3 +160,40 @@ Deploy note:
   ```sh
   cd docker/development-easy && docker compose build oe-ai-agent && docker compose up -d --no-deps oe-ai-agent
   ```
+
+## 2026-05-09 New Dashboard link OAuth: site_addr_oath + dev HTTP issuer
+
+Symptom: clicking patient menu's "New Dashboard" failed in both envs. Local: `/login` → 500. Prod: full OAuth chain ran but `/callback` → 502 with `OAUTH_JWT_CLAIM_COMPARISON_FAILED — unexpected JWT "iss" (issuer) claim value`.
+
+Root cause (single bug, two surfaces): the strangler-fig design has the Next.js dashboard front the user-facing hostname and proxy unmatched paths to OpenEMR. For the dashboard's expected OAuth issuer to match the `iss` claim OpenEMR signs into id_tokens, **OpenEMR's `site_addr_oath` global must be the dashboard URL, not OpenEMR's own URL**. The image's entrypoint (`setGlobalSettings` in `/root/devtoolsLibrary.source`) re-applies every `OPENEMR_SETTING_*` env var to the `globals` table on every restart, so any manual UI change to `site_addr_oath` is wiped on the next deploy. Prod's `OPENEMR_SETTING_site_addr_oath` was pointed at the OpenEMR Railway URL; an OpenEMR redeploy at 22:27 UTC overwrote a previously-correct DB value and broke OAuth ~3 minutes after the last successful login.
+
+What changed (Railway prod):
+- `OPENEMR_SETTING_site_addr_oath` on the `openemr` service flipped to `https://dashboard-production-28a5.up.railway.app`. Redeploy made the entrypoint write it through to `globals.gl_value`. Token exchange immediately succeeded again.
+- Staging openemr does not currently set this var (no active dashboard there); leave alone until the staging dashboard is wired up.
+
+What changed (`openemr-dashboard/`, uncommitted working-tree edits, so commit before next image rebuild):
+- `lib/auth/oauth.ts`: discovery issuer now built from `NEXT_PUBLIC_APP_URL` (the dashboard hostname), matching what OpenEMR advertises. When that URL is HTTP (i.e. local dev only), pass `[oauth.allowInsecureRequests]: true` so oauth4webapi v3 stops rejecting the issuer with `OAUTH_HTTP_REQUEST_FORBIDDEN`. Prod stays strict because the prod public URL is HTTPS.
+- `lib/http.ts`: `openemrFetch` rewrites any URL whose host matches `NEXT_PUBLIC_APP_URL` over to `OPENEMR_BASE_URL` before fetching. This means server-side OAuth endpoint calls (discovery, token exchange) skip the dashboard's own HTTP server — avoids the dev-server loopback that was returning the 500, and skips an unnecessary Railway-edge round-trip in prod. The proxy path (`proxyToOpenEMR`) already targets `OPENEMR_BASE_URL` so it's unaffected.
+- `lib/proxy.ts`: relative `Location` headers now resolve against the original request URL instead of the dashboard origin root, so OpenEMR PHP redirects like `calendar/index.php` from `/interface/main/main_info.php` resolve to `/interface/main/calendar/index.php` rather than `/calendar/...`.
+- `next.config.ts`: `script-src` allows `'unsafe-inline'` in prod CSP because Next 16 RSC streaming injects content-hash inline scripts that change every build. Phase-6+ should swap for a nonce-based CSP.
+- The earlier observed prod success at 20:26 UTC proves the deployed dashboard image already has the `NEXT_PUBLIC_APP_URL` issuer change baked in (that deploy must have been pushed via `railway up` from this working tree); committing the diff just keeps a fresh git-based rebuild from regressing.
+
+Local dev workflow note:
+- `OPENEMR_SETTING_site_addr_oath` in `docker/development-easy/docker-compose.yml` is still `https://localhost:${WT_HTTPS_PORT:-9300}` and was left alone (changing it would break OpenEMR for contributors not running the dashboard). Local override pattern: drop a `docker/development-easy/docker-compose.override.yml` setting it to `http://localhost:3000`. To fix a running stack without `down/up`, UPDATE the DB directly:
+  ```sh
+  docker compose exec mysql mariadb -uopenemr -popenemr openemr -e \
+    "UPDATE globals SET gl_value='http://localhost:3000' WHERE gl_name='site_addr_oath';"
+  ```
+  Restarting docker without the override will revert this.
+
+Strangler-fig session-cookie gotcha (surfaced during local testing):
+- Logging into OpenEMR PHP UI at `https://localhost:9300` sets the OpenEMR session cookie on origin `localhost:9300`. The OAuth flow runs through `localhost:3000` (dashboard origin), so the cookie isn't sent and OpenEMR drops the user on `/oauth2/default/provider/login` even with `autosubmit=1`. Day-to-day workflow should be: log into OpenEMR via `http://localhost:3000/interface/login/login.php` (proxied through), keep one session cookie scoped to the dashboard origin, then "New Dashboard" autosubmits silently. Prod implicitly does this because users only ever see the one dashboard hostname.
+
+Verification:
+- Prod: post-redeploy, `auth.callback.ok` lines reappeared in dashboard logs; `/callback` returns 307 → `/embed/patient/<uuid>`. No new `auth.callback.exchange_failed`.
+- Local: with the dashboard edits + DB value flipped, discovery returns matching metadata, authorize 302s back with code, callback exchanges successfully provided the user logged in via the dashboard origin first.
+
+Open follow-ups:
+- Commit the four working-tree edits in `openemr-dashboard/` so a fresh CI build doesn't regress (left uncommitted intentionally — user reviews first).
+- Consider rolling `OPENEMR_SETTING_site_addr_oath` into the openemr deploy script's defaults so production-equivalent staging envs auto-set it on duplication.
+- The cached `AuthorizationServer` in `lib/auth/oauth.ts` is module-level — fine for prod, but means dev requires a `pnpm dev` restart whenever `site_addr_oath` is changed in the running OpenEMR DB.

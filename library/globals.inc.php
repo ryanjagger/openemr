@@ -3267,6 +3267,13 @@ $GLOBALS_METADATA = [
             xl('The hostname for OAuth2, FHIR, CCDA, and Payment Processing, pointing back back to this OpenEMR instance. e.g. https://localhost:9300.')
         ],
 
+        'new_dashboard_url' => [
+            xl('New Dashboard URL'),
+            'text',
+            'http://localhost:3000',
+            xl('Origin of the companion Next.js dashboard used by the New Dashboard menu bridge. Must point to the dashboard whose OAuth2 client is registered against this OpenEMR. e.g. https://dashboard.example.com')
+        ],
+
         GlobalConnectorsEnum::REST_FHIR_API->value => [
             xl('Enable OpenEMR Standard FHIR REST API'),
             'bool',

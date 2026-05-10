@@ -170,6 +170,9 @@ stage_openemr() {
         interface/patient_file/summary/copilot.php \
         interface/main/tabs/menu/menus/patient_menus/standard.json \
         src/Menu/PatientMenuRole.php \
+        src/Services/FHIR/Observation/FhirObservationLaboratoryService.php \
+        src/Services/FHIR/QuestionnaireResponse/FhirQuestionnaireResponseFormService.php \
+        library/globals.inc.php \
         sql \
         "$stage/"
 

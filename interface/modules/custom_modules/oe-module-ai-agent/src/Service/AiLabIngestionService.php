@@ -314,11 +314,15 @@ final class AiLabIngestionService
     private function escape(string $value): string
     {
         // HL7 v2.3 escape sequences for our delimiters: | ^ ~ \ &
-        return str_replace(
+        $escaped = str_replace(
             ['\\', '|', '^', '~', '&'],
             ['\\E\\', '\\F\\', '\\S\\', '\\R\\', '\\T\\'],
             $value,
         );
+        // CR/LF are HL7 segment terminators; collapse any embedded newlines
+        // (common in LLM-extracted reference-range text) so a single field
+        // value can't fragment the message into bogus segments.
+        return preg_replace('/[\r\n\t]+/', ' ', $escaped) ?? $escaped;
     }
 
     /**
